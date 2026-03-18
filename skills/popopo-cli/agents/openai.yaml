@@ -1,0 +1,4 @@
+interface:
+  display_name: "Popopo CLI"
+  short_description: "Install and use the popopo CLI."
+  default_prompt: "Use $popopo-cli to install or run the popopo command as an end user."
