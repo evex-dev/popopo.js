@@ -49,6 +49,7 @@ import type {
   HomeDisplaySpacesRequest,
   HomeDisplaySpacesResponse,
   Invite,
+  InviteAcceptResult,
   LiveListItem,
   NameplateNormalDisplayedMessage,
   NameplateSpecialDisplayedMessage,
@@ -1713,23 +1714,86 @@ export class InvitesClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
   list<TResponse = Invite[]>(query?: RequestQuery): Promise<TResponse> {
-    return this.runtime.http.get<TResponse>(
-      this.runtime.endpoints.invites.collection,
-      { query },
-    );
+    return this.runtime.http.request<TResponse>({
+      method: "GET",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        "/api/v2/invites",
+      ),
+      query,
+    });
   }
 
   getByCode<TResponse = Invite>(code: string): Promise<TResponse> {
-    return this.runtime.http.get<TResponse>(this.runtime.endpoints.invites.byCode(code));
+    const inviteKey = extractInviteKey(code);
+
+    return this.runtime.http.request<TResponse>({
+      method: "GET",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        `/api/v2/invites/${encodeURIComponent(inviteKey)}`,
+      ),
+    });
   }
 
-  accept<TResponse = unknown>(
+  async accept<TResponse = InviteAcceptResult>(
     code: string,
     body?: Record<string, unknown>,
   ): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.invites.accept(code),
-      body,
+    const inviteKey = extractInviteKey(code);
+    const inviteInfo = await this.getByCode<Invite>(inviteKey);
+    const kind = optionalString((inviteInfo as Record<string, unknown>).kind);
+
+    if (kind === "space") {
+      const spaceKey = requiredString(
+        inviteInfo as Record<string, unknown>,
+        ["spaceKey", "space_key"],
+      );
+      const response = await this.runtime.http.request<Record<string, unknown>>({
+        method: "POST",
+        url: buildAbsoluteUrl(
+          this.runtime.options.apiBaseUrl,
+          `/api/v2/spaces/${encodeURIComponent(spaceKey)}/users/me`,
+        ),
+        body: compactObject({
+          inviteKey,
+          ...(body ?? {}),
+        }),
+      });
+
+      this.runtime.http.setSession({
+        currentSpaceKey: spaceKey,
+      });
+
+      return {
+        kind,
+        inviteKey,
+        inviteInfo,
+        spaceKey,
+        response,
+      } as TResponse;
+    }
+
+    if (kind === "friend") {
+      const response = await this.runtime.http.request<Record<string, unknown>>({
+        method: "POST",
+        url: buildAbsoluteUrl(
+          this.runtime.options.apiBaseUrl,
+          `/api/v2/users/me/use-friend-invites/${encodeURIComponent(inviteKey)}`,
+        ),
+        body: body ?? {},
+      });
+
+      return {
+        kind,
+        inviteKey,
+        inviteInfo,
+        response,
+      } as TResponse;
+    }
+
+    throw new PopopoConfigurationError(
+      `Unsupported invite kind${kind ? `: ${kind}` : ""}.`,
     );
   }
 }
@@ -2655,6 +2719,35 @@ function normalizeTencentCompactBase64(value: string): string {
   return remainder === 0
     ? normalized
     : normalized + "=".repeat(4 - remainder);
+}
+
+function extractInviteKey(input: string): string {
+  const trimmed = input.trim();
+
+  if (!trimmed) {
+    throw new PopopoConfigurationError("Invite key is empty.");
+  }
+
+  if (!/^[a-z]+:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const match = url.pathname.match(/\/invites\/([^/]+)/i);
+
+    if (!match?.[1]) {
+      throw new PopopoConfigurationError(`Unable to extract invite key from URL: ${trimmed}`);
+    }
+
+    return decodeURIComponent(match[1]);
+  } catch (error) {
+    if (error instanceof PopopoConfigurationError) {
+      throw error;
+    }
+
+    throw new PopopoConfigurationError(`Invalid invite URL: ${trimmed}`);
+  }
 }
 
 function buildTencentTrtcPlayUrl(input: {

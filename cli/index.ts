@@ -4,6 +4,7 @@ import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { publishLiveAudio } from "./live-audio-publisher.ts";
 import {
   DEFAULT_FIREBASE_AUTH_BASE_URL,
   DEFAULT_FIREBASE_SECURE_TOKEN_BASE_URL,
@@ -390,6 +391,9 @@ async function runLivesSubcommand(
     case "stream":
     case "stream-audio":
       return runLiveAudioStream(client, options);
+    case "publish":
+    case "publish-audio":
+      return runLiveAudioPublish(client, options);
     case "watch":
       return runLiveCommentWatch(client, options, globalOptions);
     case "current":
@@ -624,6 +628,22 @@ async function runInvitesSubcommand(
     default:
       throw new Error("Unknown invites subcommand.");
   }
+}
+
+async function runLiveAudioPublish(
+  client: PopopoClient,
+  options: Map<string, string[]>,
+): Promise<unknown> {
+  return publishLiveAudio(client, {
+    spaceKey: getSingleOption(options, "space-key"),
+    browserPath: getSingleOption(options, "browser-path"),
+    headless: parseOptionalBooleanOption(options, "headless"),
+    audioFilePath: getSingleOption(options, "audio-file"),
+    toneHz: parseOptionalNumberOption(options, "tone-hz"),
+    gain: parseOptionalNumberOption(options, "gain"),
+    durationMs: parseOptionalNumberOption(options, "duration-ms"),
+    publishTimeoutMs: parseOptionalNumberOption(options, "publish-timeout-ms"),
+  });
 }
 
 async function runNotificationsSubcommand(
@@ -1601,6 +1621,7 @@ function printHelp(): void {
       "  uset lives enter --space-key <space-key>",
       "  uset lives receive-info --space-key <space-key> [--live-id <live-id>]",
       "  uset lives stream-audio --space-key <space-key> [--live-id <live-id>] --output <path|-> [--max-bytes <n>]",
+      "  uset lives publish-audio [--space-key <space-key>] [--audio-file <path> | --tone-hz <hz>] [--gain <0-1>] [--duration-ms <ms>]",
       "  uset lives comment --space-key <space-key> [--live-id <live-id>] --text <text>",
       "  uset lives comments --space-key <space-key> [--live-id <live-id>] [--limit <n>] [--order-by <field dir>]",
       "  uset lives watch --space-key <space-key> [--live-id <live-id>] [--limit <n>] [--interval-ms <ms>] [--timeout-ms <ms>]",
@@ -1680,8 +1701,15 @@ function printHelp(): void {
       "  --live-id <value>",
       "  --text <value>",
       "  --output <path|->",
+      "  --audio-file <path>",
+      "  --browser-path <path>",
+      "  --headless <true|false>",
       "  --limit <n>",
       "  --max-bytes <n>",
+      "  --tone-hz <n>",
+      "  --gain <n>",
+      "  --duration-ms <ms>",
+      "  --publish-timeout-ms <ms>   default: 15000 for `uset lives publish-audio`",
       "  --order-by <field dir>",
       "  --page-token <value>",
       "  --interval-ms <ms>           default: 3000 for `uset lives watch`",

@@ -399,11 +399,23 @@ export interface CoinBalanceSnapshot {
 }
 
 export interface Invite {
+  kind?: string;
   code?: string;
   id?: string;
   inviterId?: string;
   spaceId?: string;
+  spaceKey?: string;
+  userId?: string;
   status?: string;
+  [key: string]: unknown;
+}
+
+export interface InviteAcceptResult {
+  kind?: string;
+  inviteKey: string;
+  inviteInfo: Invite;
+  spaceKey?: string;
+  response: unknown;
   [key: string]: unknown;
 }
 

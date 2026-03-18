@@ -2,6 +2,72 @@ import { describe, expect, test } from "bun:test";
 
 import { PopopoClient } from "./client.ts";
 
+describe("InvitesClient", () => {
+  test("fetches invite info from the API host and joins a space invite", async () => {
+    const calls: Array<{ url: string; method: string; body: string }> = [];
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const body = String(init?.body ?? "");
+        calls.push({ url, method, body });
+
+        if (url.endsWith("/api/v2/invites/invite-123")) {
+          return new Response(
+            JSON.stringify({
+              kind: "space",
+              spaceKey: "space-123",
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            },
+          );
+        }
+
+        return new Response(JSON.stringify({ result: true }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        });
+      },
+      session: {
+        bearerToken: "backend-token",
+      },
+    });
+
+    const result = await client.invites.accept(
+      "https://www.popopo.com/ja/spaces/space-123/invites/invite-123",
+    );
+
+    expect(calls).toEqual([
+      {
+        url: "https://api.popopo.com/api/v2/invites/invite-123",
+        method: "GET",
+        body: "",
+      },
+      {
+        url: "https://api.popopo.com/api/v2/spaces/space-123/users/me",
+        method: "POST",
+        body: JSON.stringify({ inviteKey: "invite-123" }),
+      },
+    ]);
+    expect(result).toMatchObject({
+      kind: "space",
+      inviteKey: "invite-123",
+      spaceKey: "space-123",
+      response: { result: true },
+    });
+    expect(client.getSession()).toMatchObject({
+      currentSpaceKey: "space-123",
+    });
+  });
+});
+
 describe("CoinsClient", () => {
   test("requests user-private-data from Firestore with a Bearer Firebase token", async () => {
     let seenUrl = "";

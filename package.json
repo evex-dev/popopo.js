@@ -16,5 +16,9 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.39.1",
+    "trtc-sdk-v5": "^5.16.0"
   }
 }
