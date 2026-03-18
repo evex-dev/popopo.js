@@ -35,6 +35,9 @@ export interface HttpClientOptions {
   defaultHeaders?: HeadersInit
 }
 
+const REQUESTED_WITH_HEADER_NAME = 'x-requested-with'
+const REQUESTED_WITH_HEADER_VALUE = 'android'
+
 export class HttpClient {
   private readonly baseUrl: string
   private readonly fetchImplementation: FetchLike
@@ -69,10 +72,17 @@ export class HttpClient {
     options: HttpRequestOptions<TBody>,
   ): Promise<TResponse> {
     const method = (options.method ?? 'GET').toUpperCase()
+    const url = buildUrl({
+      baseUrl: this.baseUrl,
+      path: options.path,
+      url: options.url,
+      query: options.query,
+    })
     const headers = this.buildHeaders(
       options.headers,
       options.auth ?? 'session',
       options.includeAppCheck ?? true,
+      url,
     )
     const body = serializeBody(options.body, headers)
     const init: RequestInit = {
@@ -85,12 +95,6 @@ export class HttpClient {
       init.body = body
     }
 
-    const url = buildUrl({
-      baseUrl: this.baseUrl,
-      path: options.path,
-      url: options.url,
-      query: options.query,
-    })
     const response = await this.fetchImplementation(url, init)
     const payload = await parseResponseBody(response, options.parseAs ?? 'json')
 
@@ -159,6 +163,7 @@ export class HttpClient {
     headersInit: HeadersInit | undefined,
     auth: RequestAuthMode,
     includeAppCheck: boolean,
+    requestUrl: string,
   ): Headers {
     const headers = new Headers(this.defaultHeaders)
 
@@ -180,8 +185,17 @@ export class HttpClient {
       headers.set('x-firebase-appcheck', this.session.appCheckToken)
     }
 
+    if (shouldIncludeRequestedWithHeader(requestUrl) && !headers.has(REQUESTED_WITH_HEADER_NAME)) {
+      headers.set(REQUESTED_WITH_HEADER_NAME, REQUESTED_WITH_HEADER_VALUE)
+    }
+
     return headers
   }
+}
+
+function shouldIncludeRequestedWithHeader(requestUrl: string): boolean {
+  const url = new URL(requestUrl)
+  return url.pathname.startsWith('/api/')
 }
 
 function buildUrl(options: {

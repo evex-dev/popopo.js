@@ -348,6 +348,284 @@ describe('LivesClient', () => {
     })
   })
 
+  test('reads public live power items from the Firestore powers collection', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                name: 'projects/popopo-prod/databases/(default)/documents/powers/0fBaZ82x6xOlqDybPR7F',
+                fields: {
+                  price: { integerValue: '500' },
+                  name: { stringValue: 'Power 500' },
+                  status: { stringValue: 'public' },
+                  impact_value: { integerValue: '5' },
+                  effectPath: { stringValue: 'effects/power_500.json' },
+                  iconPath: { stringValue: 'icons/power_500.png' },
+                },
+              },
+              {
+                name: 'projects/popopo-prod/databases/(default)/documents/powers/hdUz1pNJnaweZ7gc5jsC',
+                fields: {
+                  price: { integerValue: '100' },
+                  name: { stringValue: 'Power 100' },
+                  status: { stringValue: 'public' },
+                },
+              },
+              {
+                name: 'projects/popopo-prod/databases/(default)/documents/powers/power_private',
+                fields: {
+                  price: { integerValue: '99999' },
+                  name: { stringValue: 'Hidden power' },
+                  status: { stringValue: 'private' },
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        )
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.listPowers()
+
+    expect(seenUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/powers?key=api-key',
+    )
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 'hdUz1pNJnaweZ7gc5jsC',
+        price: 100,
+        name: 'Power 100',
+        status: 'public',
+      }),
+      expect.objectContaining({
+        id: '0fBaZ82x6xOlqDybPR7F',
+        price: 500,
+        name: 'Power 500',
+        status: 'public',
+        impactValue: 5,
+        effectPath: 'effects/power_500.json',
+        iconPath: 'icons/power_500.png',
+      }),
+    ])
+  })
+
+  test('posts live power to the backend powers endpoint', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+    let seenRequestedWith = ''
+    let seenBody = ''
+    const actualPowerId = '0fBaZ82x6xOlqDybPR7F'
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+        seenRequestedWith = new Headers(init?.headers).get('x-requested-with') ?? ''
+        seenBody = String(init?.body ?? '')
+
+        return new Response(JSON.stringify({ id: 'power-log-123', powerId: actualPowerId }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        })
+      },
+      session: {
+        bearerToken: 'backend-token',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+    })
+
+    const result = await client.lives.sendPower({
+      powerId: actualPowerId,
+    })
+
+    expect(seenUrl).toBe('https://api.popopo.com/api/v2/spaces/space-123/lives/live-456/powers')
+    expect(seenAuthorization).toBe('Bearer backend-token')
+    expect(seenRequestedWith).toBe('android')
+    expect(seenBody).toBe(JSON.stringify({ powerId: actualPowerId }))
+    expect(result).toEqual({ id: 'power-log-123', powerId: actualPowerId })
+  })
+
+  test('resolves a power name alias to the current public power id before posting', async () => {
+    const calls: Array<{ url: string; method: string; authorization: string; body: string }> = []
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        const url = String(input)
+        const headers = new Headers(init?.headers)
+        const call = {
+          url,
+          method: init?.method ?? 'GET',
+          authorization: headers.get('authorization') ?? '',
+          body: String(init?.body ?? ''),
+        }
+        calls.push(call)
+
+        if (url.startsWith('https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/powers?')) {
+          return new Response(
+            JSON.stringify({
+              documents: [
+                {
+                  name: 'projects/popopo-prod/databases/(default)/documents/powers/0fBaZ82x6xOlqDybPR7F',
+                  fields: {
+                    name: { stringValue: 'power_500' },
+                    price: { integerValue: '500' },
+                    status: { stringValue: 'public' },
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+              },
+            },
+          )
+        }
+
+        if (url === 'https://api.popopo.com/api/v2/spaces/space-123/lives/live-456/powers') {
+          return new Response(JSON.stringify({ id: 'power-log-345', powerId: '0fBaZ82x6xOlqDybPR7F' }), {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      },
+      session: {
+        bearerToken: 'backend-token',
+        firebaseIdToken: 'firebase-token',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.sendPower({
+      powerId: 'power_500',
+    })
+
+    expect(calls).toEqual([
+      {
+        url: 'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/powers?key=api-key',
+        method: 'GET',
+        authorization: 'Bearer firebase-token',
+        body: '',
+      },
+      {
+        url: 'https://api.popopo.com/api/v2/spaces/space-123/lives/live-456/powers',
+        method: 'POST',
+        authorization: 'Bearer backend-token',
+        body: JSON.stringify({ powerId: '0fBaZ82x6xOlqDybPR7F' }),
+      },
+    ])
+    expect(result).toEqual({ id: 'power-log-345', powerId: '0fBaZ82x6xOlqDybPR7F' })
+  })
+
+  test('infers live id from the current live of the provided space when posting live power', async () => {
+    const calls: string[] = []
+    const methods: string[] = []
+    const requestedWithHeaders: string[] = []
+    const bodies: string[] = []
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        const url = String(input)
+        calls.push(url)
+        methods.push(init?.method ?? 'GET')
+        requestedWithHeaders.push(new Headers(init?.headers).get('x-requested-with') ?? '')
+        bodies.push(String(init?.body ?? ''))
+
+        if (url.includes('/api/v2/users/me/home-display-spaces')) {
+          return new Response(
+            JSON.stringify({
+              spaces: [
+                {
+                  live: {
+                    id: 'live-456',
+                    liveId: 'live-456',
+                    spaceKey: 'space-123',
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+              },
+            },
+          )
+        }
+
+        if (url.includes('/api/v2/spaces/space-123/lives/live-456/powers')) {
+          return new Response(JSON.stringify({ id: 'power-log-234', powerId: 'hdUz1pNJnaweZ7gc5jsC' }), {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      },
+      session: {
+        bearerToken: 'backend-token',
+      },
+    })
+
+    const result = await client.lives.sendPower({
+      spaceKey: 'space-123',
+      powerId: 'hdUz1pNJnaweZ7gc5jsC',
+    })
+
+    expect(calls).toEqual([
+      'https://api.popopo.com/api/v2/users/me/home-display-spaces',
+      'https://api.popopo.com/api/v2/spaces/space-123/lives/live-456/powers',
+    ])
+    expect(methods).toEqual(['POST', 'POST'])
+    expect(requestedWithHeaders).toEqual(['android', 'android'])
+    expect(bodies).toEqual([
+      JSON.stringify({}),
+      JSON.stringify({ powerId: 'hdUz1pNJnaweZ7gc5jsC' }),
+    ])
+    expect(result).toEqual({ id: 'power-log-234', powerId: 'hdUz1pNJnaweZ7gc5jsC' })
+    expect(client.getSession()).toMatchObject({
+      currentSpaceKey: 'space-123',
+      currentLiveId: 'live-456',
+    })
+  })
+
   test('creates a live selection through the backend selections endpoint', async () => {
     let seenUrl = ''
     let seenAuthorization = ''
@@ -511,6 +789,92 @@ describe('LivesClient', () => {
       kind: 'talk',
       title: 'talk theme',
       status: 'published',
+    })
+  })
+
+  test('resolves a selection title alias before reading the selection document', async () => {
+    const calls: Array<{ url: string; authorization: string }> = []
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        const url = String(input)
+        calls.push({
+          url,
+          authorization: new Headers(init?.headers).get('authorization') ?? '',
+        })
+
+        if (url.startsWith('https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections?')) {
+          return new Response(
+            JSON.stringify({
+              documents: [
+                {
+                  name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-999',
+                  fields: {
+                    title: { stringValue: 'talk theme' },
+                    kind: { stringValue: 'talk' },
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+              },
+            },
+          )
+        }
+
+        if (url === 'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-999?key=api-key') {
+          return new Response(
+            JSON.stringify({
+              name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-999',
+              fields: {
+                title: { stringValue: 'talk theme' },
+                kind: { stringValue: 'talk' },
+                status: { stringValue: 'published' },
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+              },
+            },
+          )
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.getSelection({
+      selectionId: 'talk theme',
+    })
+
+    expect(calls).toEqual([
+      {
+        url: 'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections?key=api-key&pageSize=100',
+        authorization: 'Bearer firebase-token',
+      },
+      {
+        url: 'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-999?key=api-key',
+        authorization: 'Bearer firebase-token',
+      },
+    ])
+    expect(result).toMatchObject({
+      id: 'selection-999',
+      selectionId: 'selection-999',
+      title: 'talk theme',
     })
   })
 
@@ -722,6 +1086,119 @@ describe('LivesClient', () => {
     ])
     expect(pseudoNominate).toEqual({ sequenceId: 'sequence-next' })
     expect(nominate).toEqual({ sequenceId: 'sequence-next' })
+  })
+
+  test('resolves selection and sequence aliases before starting a selection action', async () => {
+    const calls: Array<{ url: string; method: string; body: string; authorization: string }> = []
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        const url = String(input)
+        calls.push({
+          url,
+          method: init?.method ?? 'GET',
+          body: String(init?.body ?? ''),
+          authorization: new Headers(init?.headers).get('authorization') ?? '',
+        })
+
+        if (url.startsWith('https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections?')) {
+          return new Response(
+            JSON.stringify({
+              documents: [
+                {
+                  name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-321',
+                  fields: {
+                    title: { stringValue: 'question box' },
+                    kind: { stringValue: 'message' },
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+              },
+            },
+          )
+        }
+
+        if (url.startsWith('https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-321/sequences?')) {
+          return new Response(
+            JSON.stringify({
+              documents: [
+                {
+                  name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-321/sequences/sequence-001',
+                  fields: {
+                    kind: { stringValue: 'participate' },
+                  },
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: {
+                'content-type': 'application/json',
+              },
+            },
+          )
+        }
+
+        if (url === 'https://api.popopo.com/api/v2/spaces/space-123/lives/live-456/selections/selection-321/sequences/pseudo-nominate') {
+          return new Response(JSON.stringify({ sequenceId: 'sequence-next' }), {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      },
+      session: {
+        bearerToken: 'backend-token',
+        firebaseIdToken: 'firebase-token',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.startSelectionPseudoNominate({
+      selectionId: 'question box',
+      count: 2,
+      sequenceId: 'participate',
+    })
+
+    expect(calls).toEqual([
+      {
+        url: 'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections?key=api-key&pageSize=100',
+        method: 'GET',
+        body: '',
+        authorization: 'Bearer firebase-token',
+      },
+      {
+        url: 'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-321/sequences?key=api-key&pageSize=100',
+        method: 'GET',
+        body: '',
+        authorization: 'Bearer firebase-token',
+      },
+      {
+        url: 'https://api.popopo.com/api/v2/spaces/space-123/lives/live-456/selections/selection-321/sequences/pseudo-nominate',
+        method: 'POST',
+        body: JSON.stringify({
+          count: 2,
+          sequence: {
+            id: 'sequence-001',
+          },
+        }),
+        authorization: 'Bearer backend-token',
+      },
+    ])
+    expect(result).toEqual({ sequenceId: 'sequence-next' })
   })
 
   test('collects receive info from Firestore and decodes Tencent compact tokens', async () => {

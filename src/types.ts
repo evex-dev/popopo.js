@@ -219,6 +219,33 @@ export interface LiveAudioStream {
   cancel: () => void
 }
 
+export interface PowerItem {
+  id: string
+  documentPath: string
+  price: number
+  name?: string
+  status?: string
+  createdAt?: number
+  updatedAt?: number
+  salesStartAt?: number
+  salesEndAt?: number
+  impactValue?: number
+  effectPath?: string
+  iconPath?: string
+  raw: FirestoreDocument<Record<string, unknown>>
+  [key: string]: unknown
+}
+
+export interface LivePowerSendRequest {
+  powerId: string
+}
+
+export interface LivePowerSendResult {
+  id?: string
+  powerId?: string
+  [key: string]: unknown
+}
+
 export type LiveSelectionKind = 'message' | 'talk' | 'unknown' | (string & {})
 export type LiveSelectionStatus = 'published' | 'finished' | (string & {})
 

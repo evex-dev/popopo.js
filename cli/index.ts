@@ -423,6 +423,17 @@ async function runLivesSubcommand(
         request: buildHomeDisplaySpacesRequest(options),
         query: parseQueryOptions(options),
       })
+    case 'powers':
+    case 'power-list':
+      return client.lives.listPowers()
+    case 'send-power':
+    case 'power-send':
+      return client.lives.sendPower({
+        ...buildLiveContextInput(options),
+        powerId: requireOption(options, 'power-id'),
+        request: buildHomeDisplaySpacesRequest(options),
+        query: parseQueryOptions(options),
+      })
     case 'comments':
       return client.lives.listComments({
         ...buildLiveContextInput(options),
@@ -1697,6 +1708,8 @@ function printHelp(): void {
       '  popopo lives receive-info --space-key <space-key> [--live-id <live-id>]',
       '  popopo lives stream-audio --space-key <space-key> [--live-id <live-id>] --output <path|-> [--max-bytes <n>]',
       '  popopo lives publish-audio [--space-key <space-key>] [--audio-file <path> | --tone-hz <hz>] [--gain <0-1>] [--loop] [--duration-ms <ms>]',
+      '  popopo lives powers',
+      '  popopo lives send-power --space-key <space-key> [--live-id <live-id>] --power-id <id|name>',
       '  popopo lives comment --space-key <space-key> [--live-id <live-id>] --text <text>',
       '  popopo lives comments --space-key <space-key> [--live-id <live-id>] [--limit <n>] [--order-by <field dir>]',
       '  popopo lives selection-create --space-key <space-key> [--live-id <live-id>] --kind <message|talk> [--title <value>]',
@@ -1783,8 +1796,9 @@ function printHelp(): void {
       '  --app <value>',
       '  --space-key <value>',
       '  --live-id <value>',
-      '  --selection-id <value>',
-      '  --sequence-id <value>',
+      '  --power-id <value>       Live power id or name from `popopo lives powers`',
+      '  --selection-id <value>   Live selection id or title from `popopo lives selections`',
+      '  --sequence-id <value>    Live sequence id or kind from `popopo lives selection-sequences`',
       '  --count <n>',
       '  --text <value>',
       '  --output <path|->',

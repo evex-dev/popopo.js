@@ -24,6 +24,8 @@ import type {
   LiveSelectionListOptions,
   LiveSelectionListResult,
   LiveSelectionSequenceStartResult,
+  LivePowerSendRequest,
+  LivePowerSendResult,
   LiveAudioStream,
   LiveEnterResult,
   LiveReceiveInfo,
@@ -96,6 +98,7 @@ import type {
   UserIconSourceChangeRequest,
   UserProfile,
   CoinBalanceSnapshot,
+  PowerItem,
 } from './types.ts'
 
 export const DEFAULT_POPOPO_BASE_URL = 'https://www.popopo.com'
@@ -1356,6 +1359,73 @@ export class LivesClient {
     })
   }
 
+  async listPowers(): Promise<PowerItem[]> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath('powers'),
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: {
+        key: this.runtime.options.firebase.apiKey,
+      },
+    })
+
+    const parsed = parseFirestoreDocumentList(payload)
+
+    return parsed.documents
+      .map((document) => toPowerItem(document))
+      .filter((item) => item.status === 'public')
+      .sort((left, right) => left.price - right.price || left.id.localeCompare(right.id))
+  }
+
+  async sendPower<TResponse = LivePowerSendResult>(input: {
+    spaceKey?: string
+    liveId?: string
+    powerId: string
+    request?: HomeDisplaySpacesRequest
+    query?: RequestQuery
+  }): Promise<TResponse> {
+    const context = await resolveLiveContext(this.runtime, input)
+    const resolvedPowerId = await this.resolvePowerIdentifier(input.powerId)
+
+    return this.runtime.http.request<TResponse, LivePowerSendRequest>({
+      method: 'POST',
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        `/api/v2/spaces/${encodeURIComponent(context.spaceKey)}/lives/${encodeURIComponent(context.liveId)}/powers`,
+      ),
+      body: {
+        powerId: resolvedPowerId,
+      },
+      query: input.query,
+    })
+  }
+
+  private async resolvePowerIdentifier(powerIdentifier: string): Promise<string> {
+    const normalizedIdentifier = powerIdentifier.trim()
+
+    if (!looksLikePowerAlias(normalizedIdentifier)) {
+      return normalizedIdentifier
+    }
+
+    const powers = await this.listPowers()
+    const matchedPower = powers.find(
+      (item) =>
+        item.id === normalizedIdentifier ||
+        item.name === normalizedIdentifier ||
+        String(item.price) === normalizedIdentifier,
+    )
+
+    return matchedPower?.id ?? normalizedIdentifier
+  }
+
   async createSelection<TResponse = LiveSelectionCreateResult>(input: {
     spaceKey?: string
     liveId?: string
@@ -1385,33 +1455,7 @@ export class LivesClient {
     } = {},
   ): Promise<LiveSelectionListResult> {
     const context = await resolveLiveContext(this.runtime, input)
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
-    const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: 'GET',
-      url: buildFirestoreCollectionUrl(
-        this.runtime.options.firebase.firestoreBaseUrl,
-        this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath(
-          'spaces',
-          context.spaceKey,
-          'lives',
-          context.liveId,
-          'selections',
-        ),
-      ),
-      auth: 'none',
-      headers: {
-        authorization: `Bearer ${firebaseBearerToken}`,
-      },
-      query: compactObject({
-        key: this.runtime.options.firebase.apiKey,
-        pageSize: input.options?.limit,
-        orderBy: input.options?.orderBy,
-        pageToken: input.options?.pageToken,
-      }) as RequestQuery,
-    })
-
-    return parseLiveSelectionList(payload)
+    return this.fetchSelections(context, input.options)
   }
 
   async getSelection(input: {
@@ -1422,31 +1466,8 @@ export class LivesClient {
     query?: RequestQuery
   }): Promise<LiveSelection> {
     const context = await resolveLiveContext(this.runtime, input)
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
-    const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: 'GET',
-      url: buildFirestoreDocumentUrl(
-        this.runtime.options.firebase.firestoreBaseUrl,
-        this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath(
-          'spaces',
-          context.spaceKey,
-          'lives',
-          context.liveId,
-          'selections',
-          input.selectionId,
-        ),
-      ),
-      auth: 'none',
-      headers: {
-        authorization: `Bearer ${firebaseBearerToken}`,
-      },
-      query: {
-        key: this.runtime.options.firebase.apiKey,
-      },
-    })
-
-    return toLiveSelection(parseFirestoreDocument(payload))
+    const selectionId = await this.resolveSelectionIdentifier(context, input.selectionId)
+    return this.fetchSelectionDocument(context, selectionId)
   }
 
   async listSelectionParticipants(input: {
@@ -1457,35 +1478,8 @@ export class LivesClient {
     request?: HomeDisplaySpacesRequest
   }): Promise<LiveSelectionParticipantListResult> {
     const context = await resolveLiveContext(this.runtime, input)
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
-    const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: 'GET',
-      url: buildFirestoreCollectionUrl(
-        this.runtime.options.firebase.firestoreBaseUrl,
-        this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath(
-          'spaces',
-          context.spaceKey,
-          'lives',
-          context.liveId,
-          'selections',
-          input.selectionId,
-          'participants',
-        ),
-      ),
-      auth: 'none',
-      headers: {
-        authorization: `Bearer ${firebaseBearerToken}`,
-      },
-      query: compactObject({
-        key: this.runtime.options.firebase.apiKey,
-        pageSize: input.options?.limit,
-        orderBy: input.options?.orderBy,
-        pageToken: input.options?.pageToken,
-      }) as RequestQuery,
-    })
-
-    return parseLiveSelectionParticipantList(payload)
+    const selectionId = await this.resolveSelectionIdentifier(context, input.selectionId)
+    return this.fetchSelectionParticipants(context, selectionId, input.options)
   }
 
   async listSelectionSequences(input: {
@@ -1496,35 +1490,8 @@ export class LivesClient {
     request?: HomeDisplaySpacesRequest
   }): Promise<LiveSelectionSequenceListResult> {
     const context = await resolveLiveContext(this.runtime, input)
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
-    const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: 'GET',
-      url: buildFirestoreCollectionUrl(
-        this.runtime.options.firebase.firestoreBaseUrl,
-        this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath(
-          'spaces',
-          context.spaceKey,
-          'lives',
-          context.liveId,
-          'selections',
-          input.selectionId,
-          'sequences',
-        ),
-      ),
-      auth: 'none',
-      headers: {
-        authorization: `Bearer ${firebaseBearerToken}`,
-      },
-      query: compactObject({
-        key: this.runtime.options.firebase.apiKey,
-        pageSize: input.options?.limit,
-        orderBy: input.options?.orderBy,
-        pageToken: input.options?.pageToken,
-      }) as RequestQuery,
-    })
-
-    return parseLiveSelectionSequenceList(payload)
+    const selectionId = await this.resolveSelectionIdentifier(context, input.selectionId)
+    return this.fetchSelectionSequences(context, selectionId, input.options)
   }
 
   async startSelectionPseudoNominate<TResponse = LiveSelectionSequenceStartResult>(input: {
@@ -1606,6 +1573,8 @@ export class LivesClient {
     query?: RequestQuery
   }): Promise<TResponse> {
     const context = await resolveLiveContext(this.runtime, input)
+    const selectionId = await this.resolveSelectionIdentifier(context, input.selectionId)
+    const sequenceId = await this.resolveSequenceIdentifier(context, selectionId, input.sequenceId)
 
     return this.runtime.http.request<
       TResponse,
@@ -1617,16 +1586,249 @@ export class LivesClient {
       method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
-        `/api/v2/spaces/${encodeURIComponent(context.spaceKey)}/lives/${encodeURIComponent(context.liveId)}/selections/${encodeURIComponent(input.selectionId)}/sequences/${input.action}`,
+        `/api/v2/spaces/${encodeURIComponent(context.spaceKey)}/lives/${encodeURIComponent(context.liveId)}/selections/${encodeURIComponent(selectionId)}/sequences/${input.action}`,
       ),
       body: {
         count: input.count,
         sequence: {
-          id: input.sequenceId,
+          id: sequenceId,
         },
       },
       query: input.query,
     })
+  }
+
+  private async fetchSelections(
+    context: { spaceKey: string; liveId: string },
+    options?: LiveSelectionListOptions,
+  ): Promise<LiveSelectionListResult> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          'spaces',
+          context.spaceKey,
+          'lives',
+          context.liveId,
+          'selections',
+        ),
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: options?.limit,
+        orderBy: options?.orderBy,
+        pageToken: options?.pageToken,
+      }) as RequestQuery,
+    })
+
+    return parseLiveSelectionList(payload)
+  }
+
+  private async fetchSelectionDocument(
+    context: { spaceKey: string; liveId: string },
+    selectionId: string,
+  ): Promise<LiveSelection> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreDocumentUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          'spaces',
+          context.spaceKey,
+          'lives',
+          context.liveId,
+          'selections',
+          selectionId,
+        ),
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: {
+        key: this.runtime.options.firebase.apiKey,
+      },
+    })
+
+    return toLiveSelection(parseFirestoreDocument(payload))
+  }
+
+  private async fetchSelectionParticipants(
+    context: { spaceKey: string; liveId: string },
+    selectionId: string,
+    options?: LiveSelectionParticipantListOptions,
+  ): Promise<LiveSelectionParticipantListResult> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          'spaces',
+          context.spaceKey,
+          'lives',
+          context.liveId,
+          'selections',
+          selectionId,
+          'participants',
+        ),
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: options?.limit,
+        orderBy: options?.orderBy,
+        pageToken: options?.pageToken,
+      }) as RequestQuery,
+    })
+
+    return parseLiveSelectionParticipantList(payload)
+  }
+
+  private async fetchSelectionSequences(
+    context: { spaceKey: string; liveId: string },
+    selectionId: string,
+    options?: LiveSelectionSequenceListOptions,
+  ): Promise<LiveSelectionSequenceListResult> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          'spaces',
+          context.spaceKey,
+          'lives',
+          context.liveId,
+          'selections',
+          selectionId,
+          'sequences',
+        ),
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: options?.limit,
+        orderBy: options?.orderBy,
+        pageToken: options?.pageToken,
+      }) as RequestQuery,
+    })
+
+    return parseLiveSelectionSequenceList(payload)
+  }
+
+  private async resolveSelectionIdentifier(
+    context: { spaceKey: string; liveId: string },
+    selectionIdentifier: string,
+  ): Promise<string> {
+    const normalizedIdentifier = selectionIdentifier.trim()
+
+    if (!normalizedIdentifier || !looksLikeSelectionAlias(normalizedIdentifier)) {
+      return normalizedIdentifier
+    }
+
+    const matchedSelection = await this.findUniqueSelectionByIdentifier(context, normalizedIdentifier)
+    return matchedSelection?.selectionId ?? matchedSelection?.id ?? normalizedIdentifier
+  }
+
+  private async resolveSequenceIdentifier(
+    context: { spaceKey: string; liveId: string },
+    selectionId: string,
+    sequenceIdentifier: string,
+  ): Promise<string> {
+    const normalizedIdentifier = sequenceIdentifier.trim()
+
+    if (!normalizedIdentifier || !looksLikeSequenceAlias(normalizedIdentifier)) {
+      return normalizedIdentifier
+    }
+
+    const matchedSequence = await this.findUniqueSelectionSequenceByIdentifier(
+      context,
+      selectionId,
+      normalizedIdentifier,
+    )
+
+    return matchedSequence?.sequenceId ?? matchedSequence?.id ?? normalizedIdentifier
+  }
+
+  private async findUniqueSelectionByIdentifier(
+    context: { spaceKey: string; liveId: string },
+    identifier: string,
+  ): Promise<LiveSelection | undefined> {
+    let pageToken: string | undefined
+    const titleMatches: LiveSelection[] = []
+
+    do {
+      const result = await this.fetchSelections(context, {
+        limit: 100,
+        pageToken,
+      })
+      const exactMatch = result.selections.find(
+        (selection) => selection.id === identifier || selection.selectionId === identifier,
+      )
+
+      if (exactMatch) {
+        return exactMatch
+      }
+
+      titleMatches.push(...result.selections.filter((selection) => selection.title === identifier))
+      if (titleMatches.length > 1) {
+        throw new Error(`Selection identifier is ambiguous: ${identifier}`)
+      }
+
+      pageToken = result.nextPageToken
+    } while (pageToken)
+
+    return titleMatches[0]
+  }
+
+  private async findUniqueSelectionSequenceByIdentifier(
+    context: { spaceKey: string; liveId: string },
+    selectionId: string,
+    identifier: string,
+  ): Promise<LiveSelectionSequence | undefined> {
+    let pageToken: string | undefined
+    const kindMatches: LiveSelectionSequence[] = []
+
+    do {
+      const result = await this.fetchSelectionSequences(context, selectionId, {
+        limit: 100,
+        pageToken,
+      })
+      const exactMatch = result.sequences.find(
+        (sequence) => sequence.id === identifier || sequence.sequenceId === identifier,
+      )
+
+      if (exactMatch) {
+        return exactMatch
+      }
+
+      kindMatches.push(...result.sequences.filter((sequence) => sequence.kind === identifier))
+      if (kindMatches.length > 1) {
+        throw new Error(`Sequence identifier is ambiguous: ${identifier}`)
+      }
+
+      pageToken = result.nextPageToken
+    } while (pageToken)
+
+    return kindMatches[0]
   }
 
   async getLiveDocument(
@@ -2848,6 +3050,44 @@ function toSpaceMessage(document: FirestoreDocument<Record<string, unknown>>): S
     raw: document,
     ...record,
   }
+}
+
+function toPowerItem(document: FirestoreDocument<Record<string, unknown>>): PowerItem {
+  const record = document.fields
+  const id = optionalString(record.id) ?? lastPathSegment(document.name)
+
+  return {
+    id,
+    documentPath: document.name,
+    price: requiredNumber(record, ['price']),
+    name: optionalString(record.name),
+    status: optionalString(record.status),
+    createdAt: optionalNumber(record, ['created_at']),
+    updatedAt: optionalNumber(record, ['updated_at']),
+    salesStartAt: optionalNumber(record, ['sales_start_at']),
+    salesEndAt: optionalNumber(record, ['sales_end_at']),
+    impactValue: optionalNumber(record, ['impact_value']),
+    effectPath: optionalString(record.effectPath) ?? optionalString(record.effect_path),
+    iconPath: optionalString(record.iconPath) ?? optionalString(record.icon_path),
+    raw: document,
+    ...record,
+  }
+}
+
+function looksLikePowerAlias(value: string): boolean {
+  return /^power_\d+$/i.test(value) || /^\d+$/.test(value)
+}
+
+function looksLikeSelectionAlias(value: string): boolean {
+  return !/^selection[-_]/i.test(value) && !looksLikeFirestoreIdentifier(value)
+}
+
+function looksLikeSequenceAlias(value: string): boolean {
+  return !/^sequence[-_]/i.test(value) && !looksLikeFirestoreIdentifier(value)
+}
+
+function looksLikeFirestoreIdentifier(value: string): boolean {
+  return /^[A-Za-z0-9]{20,}$/.test(value)
 }
 
 function toPersonalNotification(
