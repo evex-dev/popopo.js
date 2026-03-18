@@ -443,7 +443,7 @@ describe("LivesClient", () => {
 });
 
 describe("NotificationsClient", () => {
-  test("lists personal notifications from the extracted endpoint", async () => {
+  test("reads system notifications from Firestore and filters non-public entries", async () => {
     let seenUrl = "";
     let seenAuthorization = "";
 
@@ -453,13 +453,63 @@ describe("NotificationsClient", () => {
         seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
 
         return new Response(
-          JSON.stringify([
-            {
-              personalNotificationId: "pn-123",
-              title: "hello",
-              unreadAt: "2026-03-18T00:00:00Z",
-            },
-          ]),
+          JSON.stringify({
+            documents: [
+              {
+                name:
+                  "projects/popopo-prod/databases/(default)/documents/system-notifications/sn-public",
+                fields: {
+                  title: { stringValue: "public title" },
+                  body: { stringValue: "public body" },
+                  status: { stringValue: "public" },
+                  display_period_state: {
+                    mapValue: {
+                      fields: {
+                        active: { booleanValue: true },
+                      },
+                    },
+                  },
+                  display_period: {
+                    mapValue: {
+                      fields: {
+                        start_at: { integerValue: "1700000000" },
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                name:
+                  "projects/popopo-prod/databases/(default)/documents/system-notifications/sn-private",
+                fields: {
+                  title: { stringValue: "private title" },
+                  status: { stringValue: "private" },
+                  display_period_state: {
+                    mapValue: {
+                      fields: {
+                        active: { booleanValue: true },
+                      },
+                    },
+                  },
+                },
+              },
+              {
+                name:
+                  "projects/popopo-prod/databases/(default)/documents/system-notifications/sn-inactive",
+                fields: {
+                  title: { stringValue: "inactive title" },
+                  status: { stringValue: "public" },
+                  display_period_state: {
+                    mapValue: {
+                      fields: {
+                        active: { booleanValue: false },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          }),
           {
             status: 200,
             headers: {
@@ -469,24 +519,155 @@ describe("NotificationsClient", () => {
         );
       },
       session: {
-        bearerToken: "backend-token",
+        firebaseIdToken: "firebase-token",
+      },
+      firebase: {
+        apiKey: "api-key",
+        projectId: "popopo-prod",
+      },
+    });
+
+    const result = await client.notifications.list();
+
+    expect(seenUrl).toBe(
+      "https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/system-notifications?key=api-key&pageSize=20&orderBy=display_period.start_at+desc",
+    );
+    expect(seenAuthorization).toBe("Bearer firebase-token");
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: "sn-public",
+        systemNotificationId: "sn-public",
+        title: "public title",
+        body: "public body",
+        status: "public",
+        displayPeriodStartAt: 1700000000,
+      }),
+    ]);
+  });
+
+  test("reads personal notifications from the user Firestore collection", async () => {
+    let seenUrl = "";
+    let seenAuthorization = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                name:
+                  "projects/popopo-prod/databases/(default)/documents/users/user-123/personal-notifications/pn-123",
+                fields: {
+                  title: { stringValue: "personal title" },
+                  body: { stringValue: "personal body" },
+                  kind: { stringValue: "campaign" },
+                  is_read: { booleanValue: false },
+                  created_at: { integerValue: "1700000100" },
+                  image_url: { stringValue: "https://example.com/image.png" },
+                  thumbnail_url: { stringValue: "https://example.com/thumb.png" },
+                  transition_url: { stringValue: "popopo://notifications/pn-123" },
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      },
+      session: {
+        userId: "user-123",
+        firebaseIdToken: "firebase-token",
+      },
+      firebase: {
+        apiKey: "api-key",
+        projectId: "popopo-prod",
       },
     });
 
     const result = await client.notifications.listPersonal();
 
-    expect(seenUrl).toBe("https://api.popopo.com/api/v2/personal-notifications");
-    expect(seenAuthorization).toBe("Bearer backend-token");
+    expect(seenUrl).toBe(
+      "https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/users/user-123/personal-notifications?key=api-key&pageSize=20&orderBy=created_at+desc",
+    );
+    expect(seenAuthorization).toBe("Bearer firebase-token");
     expect(result).toEqual([
-      {
+      expect.objectContaining({
+        id: "pn-123",
         personalNotificationId: "pn-123",
-        title: "hello",
-        unreadAt: "2026-03-18T00:00:00Z",
-      },
+        title: "personal title",
+        body: "personal body",
+        kind: "campaign",
+        read: false,
+        createdAt: 1700000100,
+        imageUrl: "https://example.com/image.png",
+        thumbnailUrl: "https://example.com/thumb.png",
+        transitionUrl: "popopo://notifications/pn-123",
+      }),
     ]);
   });
 
-  test("receives personal notification delivery content with POST", async () => {
+  test("reads a personal notification document from Firestore", async () => {
+    let seenUrl = "";
+    let seenAuthorization = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+
+        return new Response(
+          JSON.stringify({
+            name:
+              "projects/popopo-prod/databases/(default)/documents/users/user-123/personal-notifications/pn-456",
+            fields: {
+              title: { stringValue: "detail title" },
+              body: { stringValue: "detail body" },
+              is_read: { booleanValue: true },
+              read_at: { timestampValue: "2026-03-18T00:00:00Z" },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      },
+      session: {
+        userId: "user-123",
+        firebaseIdToken: "firebase-token",
+      },
+      firebase: {
+        apiKey: "api-key",
+        projectId: "popopo-prod",
+      },
+    });
+
+    const result = await client.notifications.getPersonalById("pn-456");
+
+    expect(seenUrl).toBe(
+      "https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/users/user-123/personal-notifications/pn-456?key=api-key",
+    );
+    expect(seenAuthorization).toBe("Bearer firebase-token");
+    expect(result).toMatchObject({
+      id: "pn-456",
+      personalNotificationId: "pn-456",
+      title: "detail title",
+      body: "detail body",
+      read: true,
+      readAt: "2026-03-18T00:00:00Z",
+    });
+  });
+
+  test("receives personal notification delivery content with PUT and received status", async () => {
     let seenUrl = "";
     let seenMethod = "";
     let seenBody = "";
@@ -517,14 +698,14 @@ describe("NotificationsClient", () => {
 
     const result = await client.notifications.receivePersonalDeliveryContent(
       "pn-123",
-      { status: "opened" },
+      { status: "received" },
     );
 
     expect(seenUrl).toBe(
       "https://api.popopo.com/api/v2/personal-notifications/pn-123/delivery-content",
     );
-    expect(seenMethod).toBe("POST");
-    expect(seenBody).toBe(JSON.stringify({ status: "opened" }));
+    expect(seenMethod).toBe("PUT");
+    expect(seenBody).toBe(JSON.stringify({ status: "received" }));
     expect(result).toEqual({
       title: "detail title",
       body: "detail body",

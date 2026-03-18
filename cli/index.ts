@@ -4,7 +4,7 @@ import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { publishLiveAudio } from "./live-audio-publisher.ts";
+import { publishLiveAudio } from "../src/live-audio-publisher.ts";
 import {
   DEFAULT_FIREBASE_AUTH_BASE_URL,
   DEFAULT_FIREBASE_SECURE_TOKEN_BASE_URL,
@@ -636,6 +636,7 @@ async function runLiveAudioPublish(
 ): Promise<unknown> {
   return publishLiveAudio(client, {
     spaceKey: getSingleOption(options, "space-key"),
+    browser: getSingleOption(options, "browser") as "auto" | "chromium" | "firefox" | undefined,
     browserPath: getSingleOption(options, "browser-path"),
     headless: parseOptionalBooleanOption(options, "headless"),
     audioFilePath: getSingleOption(options, "audio-file"),
@@ -669,7 +670,7 @@ async function runNotificationsSubcommand(
       return client.notifications.receivePersonalDeliveryContent(
         requireOption(options, "notification-id"),
         compactObject({
-          status: getSingleOption(options, "status"),
+          status: getSingleOption(options, "status") ?? "received",
         }),
         parseQueryOptions(options),
       );
@@ -1640,9 +1641,9 @@ function printHelp(): void {
       "  uset notifications list [--query key=value]",
       "  uset notifications get --notification-id <id>",
       "  uset notifications mark-read --notification-id <id>",
-      "  uset notifications personal-list [--query key=value]",
-      "  uset notifications personal-get --notification-id <id>",
-      "  uset notifications personal-delivery-content --notification-id <id> [--status <status>]",
+      "  uset notifications personal-list [--query key=value]  # endpoint unresolved",
+      "  uset notifications personal-get --notification-id <id>  # endpoint unresolved",
+      "  uset notifications personal-delivery-content --notification-id <id> [--status received]",
       "  uset tso exchange-code --code <code> --code-verifier <verifier>",
       "  uset tso refresh-token --refresh-token <token>",
       "  uset tso status --file-id <id>",
@@ -1702,6 +1703,7 @@ function printHelp(): void {
       "  --text <value>",
       "  --output <path|->",
       "  --audio-file <path>",
+      "  --browser <auto|chromium|firefox>",
       "  --browser-path <path>",
       "  --headless <true|false>",
       "  --limit <n>",

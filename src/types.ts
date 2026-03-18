@@ -421,19 +421,25 @@ export interface InviteAcceptResult {
 
 export interface NotificationItem {
   id?: string;
+  documentPath?: string;
   type?: string;
   title?: string;
   body?: string;
   read?: boolean;
-  createdAt?: string;
+  createdAt?: string | number | null;
+  updatedAt?: string | number | null;
+  rawDocument?: FirestoreDocument<Record<string, unknown>>;
   [key: string]: unknown;
 }
 
 export interface PersonalNotificationData extends NotificationItem {
   personalNotificationId?: string;
-  unreadAt?: string;
-  readAt?: string | null;
-  deliveredAt?: string | null;
+  kind?: string;
+  unreadAt?: string | number | null;
+  readAt?: string | number | null;
+  deliveredAt?: string | number | null;
+  receivedAt?: string | number | null;
+  scheduledDeliveryAt?: string | number | null;
   imageUrl?: string;
   thumbnailUrl?: string;
   transitionUrl?: string;
@@ -443,20 +449,26 @@ export interface PersonalNotificationData extends NotificationItem {
 export interface PersonalNotificationDeliveryContent {
   title?: string;
   body?: string;
+  receivedAt?: string | null;
   imageUrl?: string;
   thumbnailUrl?: string;
   transitionUrl?: string;
   [key: string]: unknown;
 }
 
+export type ReceivePersonalNotificationDeliveryContentStatus = "received";
+
 export interface ReceivePersonalNotificationDeliveryContentRequest {
-  status?: string;
+  status?: ReceivePersonalNotificationDeliveryContentStatus;
   [key: string]: unknown;
 }
 
 export interface SystemNotificationData extends NotificationItem {
-  unreadAt?: string;
-  readAt?: string | null;
+  systemNotificationId?: string;
+  unreadAt?: string | number | null;
+  readAt?: string | number | null;
+  displayPeriodStartAt?: string | number | null;
+  hasSeenLaunchPopup?: boolean;
   imageUrl?: string;
   transitionUrl?: string;
   [key: string]: unknown;

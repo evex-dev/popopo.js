@@ -73,6 +73,7 @@ import type {
   SpaceMessageCreateRequest,
   SpaceMessageListOptions,
   SpaceMessageListResult,
+  SystemNotificationData,
   TsoAuthorizationCodeRequest,
   TsoClientConfig,
   TsoFileFetchOptions,
@@ -1801,21 +1802,56 @@ export class InvitesClient {
 export class NotificationsClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
-  list<TResponse = NotificationItem[]>(
+  async list<TResponse = NotificationItem[]>(
     query?: RequestQuery,
   ): Promise<TResponse> {
-    return this.runtime.http.get<TResponse>(
-      this.runtime.endpoints.notifications.collection,
-      { query },
-    );
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: "GET",
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath("system-notifications"),
+      ),
+      auth: "none",
+      headers: {
+        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: getNotificationPageSize(query),
+        orderBy: getNotificationOrderBy(query, "display_period.start_at desc"),
+        pageToken: getNotificationPageToken(query),
+      }) as RequestQuery,
+    });
+
+    const parsed = parseFirestoreDocumentList(payload);
+    return (
+      parsed.documents
+      .map((document) => toSystemNotification(document))
+      .filter((item) => isPublicActiveSystemNotification(item))
+    ) as TResponse;
   }
 
-  getById<TResponse = NotificationItem>(
+  async getById<TResponse = NotificationItem>(
     notificationId: string,
   ): Promise<TResponse> {
-    return this.runtime.http.get<TResponse>(
-      this.runtime.endpoints.notifications.byId(notificationId),
-    );
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: "GET",
+      url: buildFirestoreDocumentUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreDocumentPath("system-notifications", notificationId),
+      ),
+      auth: "none",
+      headers: {
+        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+      },
+      query: {
+        key: this.runtime.options.firebase.apiKey,
+      },
+    });
+
+    return toSystemNotification(parseFirestoreDocument(payload)) as TResponse;
   }
 
   markRead<TResponse = unknown>(notificationId: string): Promise<TResponse> {
@@ -1825,45 +1861,83 @@ export class NotificationsClient {
     );
   }
 
-  listPersonal<TResponse = PersonalNotificationData[]>(
+  async listPersonal<TResponse = PersonalNotificationData[]>(
     query?: RequestQuery,
   ): Promise<TResponse> {
-    return this.runtime.http.request<TResponse>({
+    const userId = getNotificationUserId(query) ?? requireUserId(this.runtime.http);
+    const kind = getNotificationFilterKind(query);
+    const defaultOrderBy = kind ? "scheduled_delivery_at desc" : "created_at desc";
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
-      url: buildAbsoluteUrl(
-        this.runtime.options.apiBaseUrl,
-        "/api/v2/personal-notifications",
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath("users", userId, "personal-notifications"),
       ),
-      query,
+      auth: "none",
+      headers: {
+        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: getNotificationPageSize(query),
+        orderBy: getNotificationOrderBy(query, defaultOrderBy),
+        pageToken: getNotificationPageToken(query),
+      }) as RequestQuery,
     });
+
+    const parsed = parseFirestoreDocumentList(payload);
+    const items = parsed.documents.map((document) => toPersonalNotification(document));
+
+    return (kind
+      ? items.filter((item) => item.kind === kind)
+      : items) as TResponse;
   }
 
-  getPersonalById<TResponse = PersonalNotificationData>(
+  async getPersonalById<TResponse = PersonalNotificationData>(
     notificationId: string,
     query?: RequestQuery,
   ): Promise<TResponse> {
-    return this.runtime.http.request<TResponse>({
+    const userId = getNotificationUserId(query) ?? requireUserId(this.runtime.http);
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
-      url: buildAbsoluteUrl(
-        this.runtime.options.apiBaseUrl,
-        `/api/v2/personal-notifications/${encodeURIComponent(notificationId)}`,
+      url: buildFirestoreDocumentUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          "users",
+          userId,
+          "personal-notifications",
+          notificationId,
+        ),
       ),
-      query,
+      auth: "none",
+      headers: {
+        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+      },
+      query: {
+        key: this.runtime.options.firebase.apiKey,
+      },
     });
+
+    return toPersonalNotification(parseFirestoreDocument(payload)) as TResponse;
   }
 
   receivePersonalDeliveryContent<TResponse = PersonalNotificationDeliveryContent>(
     notificationId: string,
-    request: ReceivePersonalNotificationDeliveryContentRequest = {},
+    request: ReceivePersonalNotificationDeliveryContentRequest = { status: "received" },
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
-      method: "POST",
+      method: "PUT",
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/personal-notifications/${encodeURIComponent(notificationId)}/delivery-content`,
       ),
-      body: request,
+      body: {
+        status: "received",
+        ...request,
+      },
       query,
     });
   }
@@ -2540,6 +2614,125 @@ function toSpaceMessage(
   };
 }
 
+function toPersonalNotification(
+  document: FirestoreDocument<Record<string, unknown>>,
+): PersonalNotificationData {
+  const record = document.fields;
+  const id =
+    optionalString(record.personal_notification_id) ??
+    optionalString(record.notification_id) ??
+    lastPathSegment(document.name);
+
+  return {
+    ...record,
+    id,
+    personalNotificationId: id,
+    documentPath: document.name,
+    rawDocument: document,
+    type: optionalString(record.type) ?? optionalString(record.kind),
+    kind: optionalString(record.kind),
+    title: optionalString(record.title),
+    body: optionalString(record.body),
+    read: optionalBoolean(record.read) ?? optionalBoolean(record.is_read),
+    createdAt: toNotificationTemporalValue(record.created_at),
+    updatedAt: toNotificationTemporalValue(record.updated_at),
+    unreadAt: toNotificationTemporalValue(record.unread_at),
+    readAt: toNotificationTemporalValue(record.read_at),
+    deliveredAt: toNotificationTemporalValue(record.delivered_at),
+    receivedAt: toNotificationTemporalValue(record.received_at),
+    scheduledDeliveryAt: toNotificationTemporalValue(record.scheduled_delivery_at),
+    imageUrl: optionalString(record.imageUrl) ?? optionalString(record.image_url),
+    thumbnailUrl: optionalString(record.thumbnailUrl) ?? optionalString(record.thumbnail_url),
+    transitionUrl: optionalString(record.transitionUrl) ?? optionalString(record.transition_url),
+  };
+}
+
+function toSystemNotification(
+  document: FirestoreDocument<Record<string, unknown>>,
+): SystemNotificationData {
+  const record = document.fields;
+  const id =
+    optionalString(record.system_notification_id) ??
+    optionalString(record.notification_id) ??
+    lastPathSegment(document.name);
+  const displayPeriod = asObjectRecord(record.display_period);
+
+  return {
+    ...record,
+    id,
+    systemNotificationId: id,
+    documentPath: document.name,
+    rawDocument: document,
+    type: optionalString(record.type) ?? optionalString(record.kind),
+    title: optionalString(record.title),
+    body: optionalString(record.body),
+    createdAt: toNotificationTemporalValue(record.created_at),
+    updatedAt: toNotificationTemporalValue(record.updated_at),
+    unreadAt: toNotificationTemporalValue(record.unread_at),
+    readAt: toNotificationTemporalValue(record.read_at),
+    displayPeriodStartAt: toNotificationTemporalValue(displayPeriod?.start_at),
+    hasSeenLaunchPopup: optionalBoolean(record.has_seen_launch_popup),
+    imageUrl: optionalString(record.imageUrl) ?? optionalString(record.image_url),
+    transitionUrl: optionalString(record.transitionUrl) ?? optionalString(record.transition_url),
+  };
+}
+
+function isPublicActiveSystemNotification(
+  notification: SystemNotificationData,
+): boolean {
+  const displayPeriodState = asObjectRecord(notification.display_period_state);
+  return notification.status === "public" &&
+    optionalBoolean(displayPeriodState?.active) === true;
+}
+
+function getNotificationUserId(query?: RequestQuery): string | undefined {
+  return getRequestQueryString(query, "userId") ??
+    getRequestQueryString(query, "user-id");
+}
+
+function getNotificationFilterKind(query?: RequestQuery): string | undefined {
+  return getRequestQueryString(query, "kind");
+}
+
+function getNotificationPageSize(query?: RequestQuery): number {
+  const value = getRequestQueryString(query, "pageSize") ??
+    getRequestQueryString(query, "limit");
+  const parsed = value === undefined ? NaN : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20;
+}
+
+function getNotificationPageToken(query?: RequestQuery): string | undefined {
+  return getRequestQueryString(query, "pageToken") ??
+    getRequestQueryString(query, "page-token");
+}
+
+function getNotificationOrderBy(
+  query: RequestQuery | undefined,
+  fallback: string,
+): string {
+  return getRequestQueryString(query, "orderBy") ??
+    getRequestQueryString(query, "order-by") ??
+    fallback;
+}
+
+function getRequestQueryString(
+  query: RequestQuery | undefined,
+  key: string,
+): string | undefined {
+  if (!query) {
+    return undefined;
+  }
+
+  const value = query[key];
+
+  if (Array.isArray(value)) {
+    const first = value[0];
+    return first === null || first === undefined ? undefined : String(first);
+  }
+
+  return value === null || value === undefined ? undefined : String(value);
+}
+
 function isIgnorableConnectionInfoError(error: unknown): error is PopopoApiError {
   return error instanceof PopopoApiError &&
     (error.status === 401 || error.status === 403);
@@ -2600,6 +2793,22 @@ async function resolveLiveContext(
 function lastPathSegment(path: string): string {
   const segments = path.split("/");
   return segments[segments.length - 1] ?? path;
+}
+
+function asObjectRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function toNotificationTemporalValue(
+  value: unknown,
+): string | number | null | undefined {
+  if (value === null) {
+    return null;
+  }
+
+  return toFiniteNumber(value) ?? optionalString(value);
 }
 
 function decodeFirestoreFields(fields: unknown): Record<string, unknown> {
@@ -2860,6 +3069,10 @@ function toFiniteNumber(value: unknown): number | undefined {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function requireTsoFileApiBaseUrl(config: TsoClientConfig): string {

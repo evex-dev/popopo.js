@@ -23,9 +23,6 @@ export interface PopopoEndpointSet {
     collection: string;
     byId: (notificationId: string) => string;
     markRead: (notificationId: string) => string;
-    personalCollection: string;
-    personalById: (notificationId: string) => string;
-    personalDeliveryContent: (notificationId: string) => string;
   };
   ipc: {
     sceneLoad: string;
@@ -69,17 +66,6 @@ export function createDefaultEndpoints(apiBasePath = ""): PopopoEndpointSet {
         buildPath(basePath, `notifications/${encodeURIComponent(notificationId)}`),
       markRead: (notificationId) =>
         buildPath(basePath, `notifications/${encodeURIComponent(notificationId)}/read`),
-      personalCollection: buildPath(basePath, "personal-notifications"),
-      personalById: (notificationId) =>
-        buildPath(
-          basePath,
-          `personal-notifications/${encodeURIComponent(notificationId)}`,
-        ),
-      personalDeliveryContent: (notificationId) =>
-        buildPath(
-          basePath,
-          `personal-notifications/${encodeURIComponent(notificationId)}/delivery-content`,
-        ),
     },
     ipc: {
       sceneLoad: buildPath(basePath, "ipc/scene/load"),
@@ -133,14 +119,6 @@ export function mergeEndpoints(
       byId: overrides.notifications?.byId ?? defaults.notifications.byId,
       markRead:
         overrides.notifications?.markRead ?? defaults.notifications.markRead,
-      personalCollection:
-        overrides.notifications?.personalCollection ??
-        defaults.notifications.personalCollection,
-      personalById:
-        overrides.notifications?.personalById ?? defaults.notifications.personalById,
-      personalDeliveryContent:
-        overrides.notifications?.personalDeliveryContent ??
-        defaults.notifications.personalDeliveryContent,
     },
     ipc: {
       sceneLoad: overrides.ipc?.sceneLoad ?? defaults.ipc.sceneLoad,
