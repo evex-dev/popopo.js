@@ -284,6 +284,278 @@ describe("LivesClient", () => {
       },
     });
   });
+
+  test("collects receive info from Firestore and decodes Tencent compact tokens", async () => {
+    const userSig =
+      "eJw1zUEOgjAUBNC7-LUhbQkUmrhAd0AkilG21Bb5IqQiImK8uxF1*2Yy84RtnFqodNNhgboFAVFfGfdcLR9JKQt-hWF4V3snOykjGcym-lVVuTGoQAAjhLmU01-SYa1BUM5tjzmUeF-Vg8H24x75Qj89MYv8B-EIAhbcN2njB02UHXbIPCkz2QejKXO6ubhquI0qUU4do72ew*sN8G04ow__";
+    const privateMapKey =
+      "eJw1j8tygkAURP9ltklZwxDkUcUCEU2hQOQRDbuB4TGA1oQBUVL59xRoetV9*i5u-4BwHywoyS4dzWnWAg3srjVbNrV598okV11q2wM5SqeKsASB1-mekxozRgnQAIIQLQVZeDYdPWdAE2RZVJAkQOVBsxuj7cQV*AA9z9qkz4EGjIORBmLcpuuYY*hKISppXDUejtiOIP-kfpbf8fuKOoV1q0duTMIJ68zJfChzNlb*OmxK06-cfdRYEIvREDer4Svig1Po*vO36zwPLeD-CloADaTBeNgabxFXXlRO6uS*GatNoNrbs4ktNU2O9CJ3lt27nqOD3z8aEV4q";
+    const calls: string[] = [];
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push(url);
+
+        if (url.includes("/connection-info")) {
+          return new Response(JSON.stringify({ userSig, privateMapKey }), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          });
+        }
+
+        if (url.includes("/documents/spaces/space-123/lives/live-456")) {
+          expect(new Headers(init?.headers).get("authorization")).toBe("Bearer firebase-token");
+
+          return new Response(
+            JSON.stringify({
+              name:
+                "projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456",
+              fields: {
+                stream_name: { stringValue: "space-123_live-456_stream-token" },
+                token: { stringValue: "stream-token" },
+                task_id: { stringValue: "task-123" },
+                status: { stringValue: "started" },
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            },
+          );
+        }
+
+        throw new Error(`Unexpected request: ${url}`);
+      },
+      session: {
+        bearerToken: "backend-token",
+        firebaseIdToken: "firebase-token",
+        currentSpaceKey: "space-123",
+        currentLiveId: "live-456",
+      },
+      firebase: {
+        apiKey: "api-key",
+        projectId: "popopo-prod",
+      },
+    });
+
+    const result = await client.lives.getReceiveInfo();
+
+    expect(calls).toEqual([
+      "https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456?key=api-key",
+      "https://api.popopo.com/api/v2/spaces/space-123/connection-info",
+    ]);
+    expect(result).toMatchObject({
+      spaceKey: "space-123",
+      liveId: "live-456",
+      streamName: "space-123_live-456_stream-token",
+      liveToken: "stream-token",
+      taskId: "task-123",
+      liveStatus: "started",
+      sdkAppId: 20026171,
+      userId: "Kvkp6lkCyOhbf9NiJJwdW5Xjdpb2",
+      userSig,
+      privateMapKey,
+      trtcPlayUrl:
+        "trtc://cloud.tencent.com/play/space-123_live-456_stream-token?sdkappid=20026171&userId=Kvkp6lkCyOhbf9NiJJwdW5Xjdpb2&usersig=" +
+        encodeURIComponent(userSig).replace(/%2A/g, "*") +
+        "&appscene=live",
+    });
+    expect(result.decodedUserSig).toMatchObject({
+      "TLS.identifier": "Kvkp6lkCyOhbf9NiJJwdW5Xjdpb2",
+      "TLS.sdkappid": "20026171",
+    });
+    expect(result.decodedPrivateMapKey).toMatchObject({
+      "TLS.sdkappid": "20026171",
+      "TLS.userbuf": expect.any(String),
+    });
+  });
+});
+
+describe("NotificationsClient", () => {
+  test("lists personal notifications from the extracted endpoint", async () => {
+    let seenUrl = "";
+    let seenAuthorization = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+
+        return new Response(
+          JSON.stringify([
+            {
+              personalNotificationId: "pn-123",
+              title: "hello",
+              unreadAt: "2026-03-18T00:00:00Z",
+            },
+          ]),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      },
+      session: {
+        bearerToken: "backend-token",
+      },
+    });
+
+    const result = await client.notifications.listPersonal();
+
+    expect(seenUrl).toBe("https://api.popopo.com/api/v2/personal-notifications");
+    expect(seenAuthorization).toBe("Bearer backend-token");
+    expect(result).toEqual([
+      {
+        personalNotificationId: "pn-123",
+        title: "hello",
+        unreadAt: "2026-03-18T00:00:00Z",
+      },
+    ]);
+  });
+
+  test("receives personal notification delivery content with POST", async () => {
+    let seenUrl = "";
+    let seenMethod = "";
+    let seenBody = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenMethod = init?.method ?? "";
+        seenBody = String(init?.body ?? "");
+
+        return new Response(
+          JSON.stringify({
+            title: "detail title",
+            body: "detail body",
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      },
+      session: {
+        bearerToken: "backend-token",
+      },
+    });
+
+    const result = await client.notifications.receivePersonalDeliveryContent(
+      "pn-123",
+      { status: "opened" },
+    );
+
+    expect(seenUrl).toBe(
+      "https://api.popopo.com/api/v2/personal-notifications/pn-123/delivery-content",
+    );
+    expect(seenMethod).toBe("POST");
+    expect(seenBody).toBe(JSON.stringify({ status: "opened" }));
+    expect(result).toEqual({
+      title: "detail title",
+      body: "detail body",
+    });
+  });
+});
+
+describe("PushClient", () => {
+  test("upserts a push device with PUT", async () => {
+    let seenUrl = "";
+    let seenMethod = "";
+    let seenAuthorization = "";
+    let seenBody = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenMethod = String(init?.method ?? "");
+        seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+        seenBody = String(init?.body ?? "");
+
+        return new Response(JSON.stringify({ result: true }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        });
+      },
+      session: {
+        bearerToken: "backend-token",
+      },
+    });
+
+    const result = await client.push.upsertDevice("device-123", {
+      deviceName: "uset",
+      system: "android",
+      app: "popopo",
+    });
+
+    expect(seenUrl).toBe("https://api.popopo.com/api/v2/push/devices/device-123");
+    expect(seenMethod).toBe("PUT");
+    expect(seenAuthorization).toBe("Bearer backend-token");
+    expect(seenBody).toBe(
+      JSON.stringify({
+        deviceName: "uset",
+        system: "android",
+        app: "popopo",
+      }),
+    );
+    expect(result).toEqual({ result: true });
+  });
+});
+
+describe("CallsClient", () => {
+  test("creates a live-follower call push", async () => {
+    let seenUrl = "";
+    let seenMethod = "";
+    let seenAuthorization = "";
+    let seenBody = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenMethod = String(init?.method ?? "");
+        seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+        seenBody = String(init?.body ?? "");
+
+        return new Response(JSON.stringify({ pushId: "push-123" }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        });
+      },
+      session: {
+        bearerToken: "backend-token",
+      },
+    });
+
+    const result = await client.calls.createPush({
+      kind: "live-follower-call",
+      spaceKey: "space-123",
+      liveId: "live-456",
+    });
+
+    expect(seenUrl).toBe("https://api.popopo.com/api/v2/push/call-pushes");
+    expect(seenMethod).toBe("POST");
+    expect(seenAuthorization).toBe("Bearer backend-token");
+    expect(seenBody).toBe(
+      JSON.stringify({
+        kind: "live-follower-call",
+        spaceKey: "space-123",
+        liveId: "live-456",
+      }),
+    );
+    expect(result).toEqual({ pushId: "push-123" });
+  });
 });
 
 describe("SpacesClient", () => {

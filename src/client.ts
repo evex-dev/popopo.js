@@ -3,17 +3,22 @@ import {
   mergeEndpoints,
   type PopopoEndpointSet,
 } from "./endpoints.ts";
-import { PopopoConfigurationError } from "./errors.ts";
+import { PopopoApiError, PopopoConfigurationError } from "./errors.ts";
 import { HttpClient, type FetchLike, type RequestQuery } from "./http.ts";
+import { inflateSync } from "node:zlib";
 import type {
   AccountRegisterResult,
   AccountProfilePatch,
   AuthState,
+  CallPushCreateRequest,
+  CallPushCreateResult,
   LiveComment,
   LiveCommentCreateRequest,
   LiveCommentListOptions,
   LiveCommentListResult,
+  LiveAudioStream,
   LiveEnterResult,
+  LiveReceiveInfo,
   LiveStartRequest,
   LiveStartResult,
   DeepPartial,
@@ -48,7 +53,12 @@ import type {
   NameplateNormalDisplayedMessage,
   NameplateSpecialDisplayedMessage,
   NotificationItem,
+  PersonalNotificationData,
+  PersonalNotificationDeliveryContent,
   OwnerUserIdChangeRequest,
+  PushDeviceUpsertRequest,
+  PushDeviceUpsertResult,
+  ReceivePersonalNotificationDeliveryContentRequest,
   SceneLoadRequest,
   SequencePlayStartRequest,
   SequenceRecordingStartRequest,
@@ -66,6 +76,7 @@ import type {
   TsoClientConfig,
   TsoFileFetchOptions,
   TsoFileStatusOptions,
+  TencentTlsCompactToken,
   TsoOAuthTokenResponse,
   TsoRefreshTokenRequest,
   UserPrivateData,
@@ -94,6 +105,11 @@ export const DEFAULT_FIREBASE_SECURE_TOKEN_BASE_URL =
 export const DEFAULT_TSO_OAUTH_BASE_URL = "https://oauth.dev.seed.virtualcast.jp";
 const DEFAULT_FIREBASE_ANDROID_CLIENT_TYPE = "CLIENT_TYPE_ANDROID";
 const DEFAULT_FIREBASE_RECAPTCHA_VERSION = "RECAPTCHA_ENTERPRISE";
+export const DEFAULT_TENCENT_SDK_APP_ID = 20026171;
+const DEFAULT_TENCENT_TRTC_PLAY_HOST = "cloud.tencent.com";
+const DEFAULT_TENCENT_TRTC_PLAY_APP_SCENE = "live";
+export const DEFAULT_TENCENT_LIVE_PLAY_HOST = "play.live-t.popopo.com";
+const DEFAULT_TENCENT_LIVE_PLAY_PATH = "live";
 
 export const DEFAULT_FIREBASE_CONFIG: FirebaseClientConfig = {
   apiKey: DEFAULT_FIREBASE_API_KEY,
@@ -140,6 +156,8 @@ export class PopopoClient {
   readonly accounts: AccountsClient;
   readonly spaces: SpacesClient;
   readonly lives: LivesClient;
+  readonly push: PushClient;
+  readonly calls: CallsClient;
   readonly coins: CoinsClient;
   readonly invites: InvitesClient;
   readonly notifications: NotificationsClient;
@@ -176,6 +194,8 @@ export class PopopoClient {
     this.accounts = new AccountsClient(this.runtime);
     this.spaces = new SpacesClient(this.runtime);
     this.lives = new LivesClient(this.runtime);
+    this.push = new PushClient(this.runtime);
+    this.calls = new CallsClient(this.runtime);
     this.coins = new CoinsClient(this.runtime);
     this.invites = new InvitesClient(this.runtime);
     this.notifications = new NotificationsClient(this.runtime);
@@ -1445,6 +1465,159 @@ export class LivesClient {
     return parseLiveCommentList(payload);
   }
 
+  async getLiveDocument(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      request?: HomeDisplaySpacesRequest;
+      query?: RequestQuery;
+    } = {},
+  ): Promise<FirestoreDocument<Record<string, unknown>>> {
+    const context = await resolveLiveContext(this.runtime, input);
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: "GET",
+      url: buildFirestoreDocumentUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath("spaces", context.spaceKey, "lives", context.liveId),
+      ),
+      auth: "none",
+      headers: {
+        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+      },
+      query: {
+        key: this.runtime.options.firebase.apiKey,
+      },
+    });
+
+    return parseFirestoreDocument<Record<string, unknown>>(payload);
+  }
+
+  async getReceiveInfo(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      request?: HomeDisplaySpacesRequest;
+      query?: RequestQuery;
+    } = {},
+  ): Promise<LiveReceiveInfo> {
+    const context = await resolveLiveContext(this.runtime, input);
+    const liveDocument = await this.getLiveDocument(input);
+    const liveFields = liveDocument.fields;
+
+    let connectionInfo: Record<string, unknown> | undefined;
+    let connectionInfoError: LiveReceiveInfo["connectionInfoError"];
+
+    try {
+      connectionInfo = await new SpacesClient(this.runtime).connectionInfo<Record<string, unknown>>(
+        context.spaceKey,
+        {},
+        input.query,
+      );
+    } catch (error) {
+      if (isIgnorableConnectionInfoError(error)) {
+        connectionInfoError = {
+          statusCode: error.status,
+          message: error.message,
+        };
+      } else {
+        throw error;
+      }
+    }
+
+    const userSig = optionalString(connectionInfo?.userSig);
+    const privateMapKey = optionalString(connectionInfo?.privateMapKey);
+    const decodedUserSig = decodeTencentCompactToken(userSig);
+    const decodedPrivateMapKey = decodeTencentCompactToken(privateMapKey);
+    const sdkAppId =
+      toFiniteNumber(decodedUserSig?.["TLS.sdkappid"]) ??
+      toFiniteNumber(decodedPrivateMapKey?.["TLS.sdkappid"]) ??
+      DEFAULT_TENCENT_SDK_APP_ID;
+    const userId =
+      optionalString(decodedUserSig?.["TLS.identifier"]) ??
+      optionalString(decodedPrivateMapKey?.["TLS.identifier"]) ??
+      this.runtime.http.getSession().userId;
+    const streamName = optionalString(liveFields.stream_name);
+
+    return {
+      spaceKey: context.spaceKey,
+      liveId: context.liveId,
+      streamName,
+      liveToken: optionalString(liveFields.token),
+      taskId: optionalString(liveFields.task_id),
+      liveStatus: optionalString(liveFields.status),
+      playbackDomain: DEFAULT_TENCENT_LIVE_PLAY_HOST,
+      liveFlvUrl: streamName ? buildTencentLivePlaybackUrl(streamName, "flv") : undefined,
+      liveHlsUrl: streamName ? buildTencentLivePlaybackUrl(streamName, "m3u8") : undefined,
+      liveRtmpUrl: streamName ? buildTencentLiveRtmpUrl(streamName) : undefined,
+      sdkAppId,
+      userId,
+      userSig,
+      privateMapKey,
+      trtcPlayUrl:
+        sdkAppId && userId && userSig && streamName
+          ? buildTencentTrtcPlayUrl({
+              sdkAppId,
+              userId,
+              userSig,
+              streamName,
+            })
+          : undefined,
+      decodedUserSig,
+      decodedPrivateMapKey,
+      liveDocumentPath: liveDocument.name,
+      liveDocument,
+      connectionInfo,
+      connectionInfoError,
+    };
+  }
+
+  async openAudioStream(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      request?: HomeDisplaySpacesRequest;
+      query?: RequestQuery;
+    } = {},
+  ): Promise<LiveAudioStream> {
+    const receiveInfo = await this.getReceiveInfo(input);
+    const url = receiveInfo.liveFlvUrl;
+
+    if (!url) {
+      throw new PopopoConfigurationError(
+        "Unable to resolve a playable live audio URL for this live.",
+      );
+    }
+
+    const abortController = new AbortController();
+    const response = await this.runtime.http.request<Response>({
+      method: "GET",
+      url,
+      auth: "none",
+      includeAppCheck: false,
+      parseAs: "response",
+      signal: abortController.signal,
+      headers: {
+        accept: "video/x-flv,application/octet-stream;q=0.9,*/*;q=0.1",
+      },
+    });
+
+    const stream = response.body;
+
+    if (!stream) {
+      throw new PopopoConfigurationError("The live audio response does not contain a body stream.");
+    }
+
+    return {
+      url,
+      contentType: response.headers.get("content-type") ?? undefined,
+      response,
+      stream,
+      receiveInfo,
+      cancel: () => abortController.abort(),
+    };
+  }
+
 }
 
 export class CoinsClient {
@@ -1494,6 +1667,45 @@ export class CoinsClient {
       userPrivateData: document.fields,
       rawDocument: document,
     };
+  }
+}
+
+export class PushClient {
+  constructor(private readonly runtime: ClientRuntime) {}
+
+  upsertDevice<TResponse = PushDeviceUpsertResult>(
+    deviceId: string,
+    body: PushDeviceUpsertRequest,
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    return this.runtime.http.request<TResponse, PushDeviceUpsertRequest>({
+      method: "PUT",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        `/api/v2/push/devices/${encodeURIComponent(deviceId)}`,
+      ),
+      body,
+      query,
+    });
+  }
+}
+
+export class CallsClient {
+  constructor(private readonly runtime: ClientRuntime) {}
+
+  createPush<TResponse = CallPushCreateResult>(
+    body: CallPushCreateRequest,
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    return this.runtime.http.request<TResponse, CallPushCreateRequest>({
+      method: "POST",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        "/api/v2/push/call-pushes",
+      ),
+      body,
+      query,
+    });
   }
 }
 
@@ -1547,6 +1759,49 @@ export class NotificationsClient {
       this.runtime.endpoints.notifications.markRead(notificationId),
       {},
     );
+  }
+
+  listPersonal<TResponse = PersonalNotificationData[]>(
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    return this.runtime.http.request<TResponse>({
+      method: "GET",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        "/api/v2/personal-notifications",
+      ),
+      query,
+    });
+  }
+
+  getPersonalById<TResponse = PersonalNotificationData>(
+    notificationId: string,
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    return this.runtime.http.request<TResponse>({
+      method: "GET",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        `/api/v2/personal-notifications/${encodeURIComponent(notificationId)}`,
+      ),
+      query,
+    });
+  }
+
+  receivePersonalDeliveryContent<TResponse = PersonalNotificationDeliveryContent>(
+    notificationId: string,
+    request: ReceivePersonalNotificationDeliveryContentRequest = {},
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    return this.runtime.http.request<TResponse>({
+      method: "POST",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        `/api/v2/personal-notifications/${encodeURIComponent(notificationId)}/delivery-content`,
+      ),
+      body: request,
+      query,
+    });
   }
 }
 
@@ -2221,6 +2476,11 @@ function toSpaceMessage(
   };
 }
 
+function isIgnorableConnectionInfoError(error: unknown): error is PopopoApiError {
+  return error instanceof PopopoApiError &&
+    (error.status === 401 || error.status === 403);
+}
+
 async function resolveLiveContext(
   runtime: ClientRuntime,
   input: {
@@ -2231,8 +2491,12 @@ async function resolveLiveContext(
   },
 ): Promise<{ spaceKey: string; liveId: string }> {
   const session = runtime.http.getSession();
-  const spaceKey = input.spaceKey ?? session.currentSpaceKey;
-  const liveId = input.liveId ?? session.currentLiveId;
+  const sessionSpaceKey = session.currentSpaceKey;
+  const spaceKey = input.spaceKey ?? sessionSpaceKey;
+  const liveId = input.liveId ??
+    (spaceKey && sessionSpaceKey && spaceKey === sessionSpaceKey
+      ? session.currentLiveId
+      : undefined);
 
   if (spaceKey && liveId) {
     return { spaceKey, liveId };
@@ -2359,6 +2623,65 @@ function toFirestoreNumber(value: unknown): number | string | undefined {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : value;
+}
+
+function decodeTencentCompactToken(
+  value: string | undefined,
+): TencentTlsCompactToken | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const normalized = normalizeTencentCompactBase64(value);
+    const decoded = inflateSync(Buffer.from(normalized, "base64")).toString("utf8");
+    const parsed = JSON.parse(decoded);
+
+    return parsed && typeof parsed === "object"
+      ? parsed as TencentTlsCompactToken
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeTencentCompactBase64(value: string): string {
+  const normalized = value
+    .replace(/\*/g, "+")
+    .replace(/-/g, "/")
+    .replace(/_/g, "=");
+  const remainder = normalized.length % 4;
+
+  return remainder === 0
+    ? normalized
+    : normalized + "=".repeat(4 - remainder);
+}
+
+function buildTencentTrtcPlayUrl(input: {
+  sdkAppId: number;
+  userId: string;
+  userSig: string;
+  streamName: string;
+}): string {
+  const query = new URLSearchParams({
+    sdkappid: String(input.sdkAppId),
+    userId: input.userId,
+    usersig: input.userSig,
+    appscene: DEFAULT_TENCENT_TRTC_PLAY_APP_SCENE,
+  });
+
+  return `trtc://${DEFAULT_TENCENT_TRTC_PLAY_HOST}/play/${encodeURIComponent(input.streamName)}?${query.toString()}`;
+}
+
+function buildTencentLivePlaybackUrl(
+  streamName: string,
+  extension: "flv" | "m3u8",
+): string {
+  return `https://${DEFAULT_TENCENT_LIVE_PLAY_HOST}/${DEFAULT_TENCENT_LIVE_PLAY_PATH}/${encodeURIComponent(streamName)}.${extension}`;
+}
+
+function buildTencentLiveRtmpUrl(streamName: string): string {
+  return `rtmp://${DEFAULT_TENCENT_LIVE_PLAY_HOST}/${DEFAULT_TENCENT_LIVE_PLAY_PATH}/${encodeURIComponent(streamName)}`;
 }
 
 function normalizeCoinBalances(value: unknown): Record<string, number> {

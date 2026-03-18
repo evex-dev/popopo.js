@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,9 +13,11 @@ import {
   PopopoClient,
   type AccountProfilePatch,
   type AuthState,
+  type CallPushCreateRequest,
   type LiveCommentCreateRequest,
   type LiveCommentListOptions,
   type LiveStartRequest,
+  type PushDeviceUpsertRequest,
   type RequestQuery,
   type SpaceConnectionRequest,
   type SpaceCreateRequest,
@@ -124,6 +126,11 @@ async function dispatchCommand(
     case "coins":
     case "coin":
       return runCoinsSubcommand(second, client, options);
+    case "push":
+      return runPushSubcommand(second, client, options);
+    case "calls":
+    case "call":
+      return runCallsSubcommand(second, client, options);
     case "lives":
       return runLivesSubcommand(second, client, options, context.globalOptions);
     case "spaces":
@@ -373,6 +380,16 @@ async function runLivesSubcommand(
         options: buildLiveCommentListOptions(options),
         request: buildHomeDisplaySpacesRequest(options),
       });
+    case "receive":
+    case "receive-info":
+      return client.lives.getReceiveInfo({
+        ...buildLiveContextInput(options),
+        request: buildHomeDisplaySpacesRequest(options),
+        query: parseQueryOptions(options),
+      });
+    case "stream":
+    case "stream-audio":
+      return runLiveAudioStream(client, options);
     case "watch":
       return runLiveCommentWatch(client, options, globalOptions);
     case "current":
@@ -405,6 +422,42 @@ async function runLivesSubcommand(
     }
     default:
       throw new Error("Unknown lives subcommand.");
+  }
+}
+
+async function runPushSubcommand(
+  command: string | undefined,
+  client: PopopoClient,
+  options: Map<string, string[]>,
+): Promise<unknown> {
+  switch (command) {
+    case "upsert-device":
+    case "register-device":
+    case "device":
+      return client.push.upsertDevice(
+        requireOption(options, "device-id"),
+        buildPushDeviceUpsertRequest(options),
+        parseQueryOptions(options),
+      );
+    default:
+      throw new Error("Unknown push subcommand.");
+  }
+}
+
+async function runCallsSubcommand(
+  command: string | undefined,
+  client: PopopoClient,
+  options: Map<string, string[]>,
+): Promise<unknown> {
+  switch (command) {
+    case "create-push":
+    case "push":
+      return client.calls.createPush(
+        buildCallPushCreateRequest(options),
+        parseQueryOptions(options),
+      );
+    default:
+      throw new Error("Unknown calls subcommand.");
   }
 }
 
@@ -523,6 +576,39 @@ async function runCoinsSubcommand(
   }
 }
 
+async function runLiveAudioStream(
+  client: PopopoClient,
+  options: Map<string, string[]>,
+): Promise<unknown> {
+  const output = requireOption(options, "output");
+  const maxBytes = parseOptionalNumberOption(options, "max-bytes");
+  const liveStream = await client.lives.openAudioStream({
+    ...buildLiveContextInput(options),
+    request: buildHomeDisplaySpacesRequest(options),
+    query: parseQueryOptions(options),
+  });
+
+  try {
+    const bytesWritten = await writeReadableStreamToDestination(
+      liveStream.stream,
+      output,
+      maxBytes,
+    );
+
+    return {
+      ok: true,
+      output,
+      bytesWritten,
+      maxBytes,
+      url: liveStream.url,
+      contentType: liveStream.contentType,
+      receiveInfo: liveStream.receiveInfo,
+    };
+  } finally {
+    liveStream.cancel();
+  }
+}
+
 async function runInvitesSubcommand(
   command: string | undefined,
   client: PopopoClient,
@@ -552,6 +638,21 @@ async function runNotificationsSubcommand(
       return client.notifications.getById(requireOption(options, "notification-id"));
     case "mark-read":
       return client.notifications.markRead(requireOption(options, "notification-id"));
+    case "personal-list":
+      return client.notifications.listPersonal(parseQueryOptions(options));
+    case "personal-get":
+      return client.notifications.getPersonalById(
+        requireOption(options, "notification-id"),
+        parseQueryOptions(options),
+      );
+    case "personal-delivery-content":
+      return client.notifications.receivePersonalDeliveryContent(
+        requireOption(options, "notification-id"),
+        compactObject({
+          status: getSingleOption(options, "status"),
+        }),
+        parseQueryOptions(options),
+      );
     default:
       throw new Error("Unknown notifications subcommand.");
   }
@@ -966,6 +1067,58 @@ function buildRequestBody(options: Map<string, string[]>): Record<string, unknow
   }
 
   return parseJsonOption<Record<string, unknown>>(rawBody, "--body-json");
+}
+
+function buildPushDeviceUpsertRequest(
+  options: Map<string, string[]>,
+): PushDeviceUpsertRequest {
+  const rawBody = getSingleOption(options, "body-json");
+
+  if (rawBody) {
+    return parseJsonOption<PushDeviceUpsertRequest>(rawBody, "--body-json");
+  }
+
+  return compactObject({
+    deviceName: getSingleOption(options, "device-name") ?? "uset",
+    system: getSingleOption(options, "system") ?? "android",
+    app: getSingleOption(options, "app") ?? "popopo",
+  }) as PushDeviceUpsertRequest;
+}
+
+function buildCallPushCreateRequest(
+  options: Map<string, string[]>,
+): CallPushCreateRequest {
+  const rawBody = getSingleOption(options, "body-json");
+
+  if (rawBody) {
+    return parseJsonOption<CallPushCreateRequest>(rawBody, "--body-json");
+  }
+
+  const kind = requireOption(options, "kind");
+
+  switch (kind) {
+    case "user-call":
+      return {
+        kind,
+        spaceKey: requireOption(options, "space-key"),
+        userId: requireOption(options, "user-id"),
+      };
+    case "space-friends-call":
+      return {
+        kind,
+        spaceKey: requireOption(options, "space-key"),
+      };
+    case "live-follower-call":
+      return {
+        kind,
+        spaceKey: requireOption(options, "space-key"),
+        liveId: requireOption(options, "live-id"),
+      };
+    default:
+      throw new Error(
+        "Unsupported call push kind. Use user-call, space-friends-call, or live-follower-call.",
+      );
+  }
 }
 
 function createClient(
@@ -1446,6 +1599,8 @@ function printHelp(): void {
       "  uset lives list --space-key <space-key> [--kind <value>] [--category <value>] [--query key=value]",
       "  uset lives start --space-key <space-key> --genre-id <genre-id> [--tag <tag>] [--can-enter <true|false>]",
       "  uset lives enter --space-key <space-key>",
+      "  uset lives receive-info --space-key <space-key> [--live-id <live-id>]",
+      "  uset lives stream-audio --space-key <space-key> [--live-id <live-id>] --output <path|-> [--max-bytes <n>]",
       "  uset lives comment --space-key <space-key> [--live-id <live-id>] --text <text>",
       "  uset lives comments --space-key <space-key> [--live-id <live-id>] [--limit <n>] [--order-by <field dir>]",
       "  uset lives watch --space-key <space-key> [--live-id <live-id>] [--limit <n>] [--interval-ms <ms>] [--timeout-ms <ms>]",
@@ -1456,12 +1611,17 @@ function printHelp(): void {
       "  uset spaces message --space-key <space-key> --text <text>",
       "  uset spaces messages --space-key <space-key> [--limit <n>] [--order-by <field dir>]",
       "  uset spaces watch --space-key <space-key> [--limit <n>] [--interval-ms <ms>] [--timeout-ms <ms>]",
+      "  uset push upsert-device --device-id <id> [--device-name <name>] [--system <dummy|android|ios>] [--app <name>]",
+      "  uset calls create-push --kind <user-call|space-friends-call|live-follower-call> --space-key <space-key> [--user-id <id>] [--live-id <id>]",
       "  uset invites list [--query key=value]",
       "  uset invites get --code <invite-code>",
       "  uset invites accept --code <invite-code>",
       "  uset notifications list [--query key=value]",
       "  uset notifications get --notification-id <id>",
       "  uset notifications mark-read --notification-id <id>",
+      "  uset notifications personal-list [--query key=value]",
+      "  uset notifications personal-get --notification-id <id>",
+      "  uset notifications personal-delivery-content --notification-id <id> [--status <status>]",
       "  uset tso exchange-code --code <code> --code-verifier <verifier>",
       "  uset tso refresh-token --refresh-token <token>",
       "  uset tso status --file-id <id>",
@@ -1512,10 +1672,16 @@ function printHelp(): void {
       "  --request-uri <url>            default: http://localhost",
       "  --session-info <value>",
       "  --phone-number <E164>",
+      "  --device-id <value>",
+      "  --device-name <value>",
+      "  --system <dummy|android|ios>",
+      "  --app <value>",
       "  --space-key <value>",
       "  --live-id <value>",
       "  --text <value>",
+      "  --output <path|->",
       "  --limit <n>",
+      "  --max-bytes <n>",
       "  --order-by <field dir>",
       "  --page-token <value>",
       "  --interval-ms <ms>           default: 3000 for `uset lives watch`",
@@ -1531,6 +1697,60 @@ function printHelp(): void {
       "  then: uset ...",
     ].join("\n"),
   );
+}
+
+async function writeReadableStreamToDestination(
+  stream: ReadableStream<Uint8Array>,
+  output: string,
+  maxBytes?: number,
+): Promise<number> {
+  const reader = stream.getReader();
+  let written = 0;
+  let fileHandle: Awaited<ReturnType<typeof open>> | undefined;
+
+  try {
+    if (output !== "-") {
+      const resolvedOutput = resolve(output);
+      await mkdir(dirname(resolvedOutput), { recursive: true });
+      fileHandle = await open(resolvedOutput, "w");
+    }
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      if (!value || value.byteLength === 0) {
+        continue;
+      }
+
+      const remaining = maxBytes === undefined ? value.byteLength : maxBytes - written;
+
+      if (remaining <= 0) {
+        break;
+      }
+
+      const chunk = remaining >= value.byteLength ? value : value.subarray(0, remaining);
+
+      if (output === "-") {
+        process.stdout.write(Buffer.from(chunk));
+      } else {
+        await fileHandle!.write(Buffer.from(chunk));
+      }
+
+      written += chunk.byteLength;
+
+      if (maxBytes !== undefined && written >= maxBytes) {
+        break;
+      }
+    }
+  } finally {
+    await fileHandle?.close().catch(() => undefined);
+  }
+
+  return written;
 }
 
 main().catch((error: unknown) => {

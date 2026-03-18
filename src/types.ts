@@ -77,6 +77,54 @@ export interface AccountRegisterResult {
   [key: string]: unknown;
 }
 
+export type PushDeviceSystem = "dummy" | "android" | "ios";
+
+export interface PushDeviceUpsertRequest {
+  deviceName: string;
+  system: PushDeviceSystem;
+  app: string;
+  [key: string]: unknown;
+}
+
+export interface PushDeviceUpsertResult {
+  result?: boolean;
+  [key: string]: unknown;
+}
+
+export type CallPushKind = "user-call" | "space-friends-call" | "live-follower-call";
+
+export interface UserCallPushRequest {
+  kind: "user-call";
+  spaceKey: string;
+  userId: string;
+  [key: string]: unknown;
+}
+
+export interface SpaceFriendsCallPushRequest {
+  kind: "space-friends-call";
+  spaceKey: string;
+  [key: string]: unknown;
+}
+
+export interface LiveFollowerCallPushRequest {
+  kind: "live-follower-call";
+  spaceKey: string;
+  liveId: string;
+  [key: string]: unknown;
+}
+
+export type CallPushCreateRequest =
+  | UserCallPushRequest
+  | SpaceFriendsCallPushRequest
+  | LiveFollowerCallPushRequest;
+
+export interface CallPushCreateResult {
+  result?: boolean;
+  pushId?: string;
+  id?: string;
+  [key: string]: unknown;
+}
+
 export interface Space {
   id?: string;
   spaceKey?: string;
@@ -122,6 +170,53 @@ export interface LiveEnterResult {
   spaceKey: string;
   liveId: string;
   live: LiveListItem;
+}
+
+export interface TencentTlsCompactToken {
+  "TLS.identifier"?: string;
+  "TLS.sdkappid"?: string;
+  "TLS.time"?: number;
+  "TLS.expire"?: number;
+  "TLS.userbuf"?: string;
+  "TLS.ver"?: string;
+  "TLS.sig"?: string;
+  [key: string]: unknown;
+}
+
+export interface LiveReceiveInfo {
+  spaceKey: string;
+  liveId: string;
+  streamName?: string;
+  liveToken?: string;
+  taskId?: string;
+  liveStatus?: string;
+  playbackDomain?: string;
+  liveFlvUrl?: string;
+  liveHlsUrl?: string;
+  liveRtmpUrl?: string;
+  sdkAppId?: number;
+  userId?: string;
+  userSig?: string;
+  privateMapKey?: string;
+  trtcPlayUrl?: string;
+  decodedUserSig?: TencentTlsCompactToken;
+  decodedPrivateMapKey?: TencentTlsCompactToken;
+  liveDocumentPath?: string;
+  liveDocument?: FirestoreDocument<Record<string, unknown>>;
+  connectionInfo?: Record<string, unknown>;
+  connectionInfoError?: {
+    statusCode?: number;
+    message: string;
+  };
+}
+
+export interface LiveAudioStream {
+  url: string;
+  contentType?: string;
+  response: Response;
+  stream: ReadableStream<Uint8Array>;
+  receiveInfo: LiveReceiveInfo;
+  cancel: () => void;
 }
 
 export interface SpaceCreateRequest {
@@ -319,6 +414,39 @@ export interface NotificationItem {
   body?: string;
   read?: boolean;
   createdAt?: string;
+  [key: string]: unknown;
+}
+
+export interface PersonalNotificationData extends NotificationItem {
+  personalNotificationId?: string;
+  unreadAt?: string;
+  readAt?: string | null;
+  deliveredAt?: string | null;
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  transitionUrl?: string;
+  [key: string]: unknown;
+}
+
+export interface PersonalNotificationDeliveryContent {
+  title?: string;
+  body?: string;
+  imageUrl?: string;
+  thumbnailUrl?: string;
+  transitionUrl?: string;
+  [key: string]: unknown;
+}
+
+export interface ReceivePersonalNotificationDeliveryContentRequest {
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface SystemNotificationData extends NotificationItem {
+  unreadAt?: string;
+  readAt?: string | null;
+  imageUrl?: string;
+  transitionUrl?: string;
   [key: string]: unknown;
 }
 
