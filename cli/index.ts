@@ -284,10 +284,29 @@ async function runSpacesSubcommand(
   options: Map<string, string[]>,
 ): Promise<unknown> {
   switch (command) {
-    case "list":
-      return client.spaces.list(parseQueryOptions(options));
     case "get":
-      return client.spaces.getById(requireOption(options, "space-id"));
+      return client.spaces.getByKey(
+        requireOption(options, "space-key"),
+        buildHomeDisplaySpacesRequest(options),
+        parseQueryOptions(options),
+      );
+    case "list":
+    case undefined:
+      return client.spaces.list(
+        buildHomeDisplaySpacesRequest(options),
+        parseQueryOptions(options),
+      );
+    case "current":
+      return client.spaces.current(
+        buildHomeDisplaySpacesRequest(options),
+        parseQueryOptions(options),
+      );
+    case "connection-info":
+      return client.spaces.connectionInfo(
+        requireOption(options, "space-key"),
+        buildRequestBody(options),
+        parseQueryOptions(options),
+      );
     default:
       throw new Error("Unknown spaces subcommand.");
   }
@@ -299,16 +318,33 @@ async function runLivesSubcommand(
   options: Map<string, string[]>,
 ): Promise<unknown> {
   switch (command) {
+    case "current":
+      return client.lives.current(
+        buildHomeDisplaySpacesRequest(options),
+        parseQueryOptions(options),
+      );
+    case "get":
+      return client.lives.getCurrentBySpaceKey(
+        requireOption(options, "space-key"),
+        buildHomeDisplaySpacesRequest(options),
+        parseQueryOptions(options),
+      );
     case "list":
     case undefined: {
       const spaceKey = getSingleOption(options, "space-key");
-      const request = buildHomeDisplaySpacesRequest(options);
 
       if (spaceKey) {
-        return client.lives.listBySpace(spaceKey, request, parseQueryOptions(options));
+        return client.lives.getBySpaceKey(
+          spaceKey,
+          buildHomeDisplaySpacesRequest(options),
+          parseQueryOptions(options),
+        );
       }
 
-      return client.lives.list(request, parseQueryOptions(options));
+      return client.lives.list(
+        buildHomeDisplaySpacesRequest(options),
+        parseQueryOptions(options),
+      );
     }
     default:
       throw new Error("Unknown lives subcommand.");
@@ -634,6 +670,16 @@ function buildHomeDisplaySpacesRequest(
   });
 }
 
+function buildRequestBody(options: Map<string, string[]>): Record<string, unknown> {
+  const rawBody = getSingleOption(options, "body-json");
+
+  if (!rawBody) {
+    return {};
+  }
+
+  return parseJsonOption<Record<string, unknown>>(rawBody, "--body-json");
+}
+
 function createClient(
   globalOptions: GlobalOptions,
   resources: ResourceStrings,
@@ -843,6 +889,36 @@ function parseOptionalNumberOption(
   return parsed;
 }
 
+function parseOptionalBooleanOption(
+  options: Map<string, string[]>,
+  key: string,
+): boolean | undefined {
+  const value = getSingleOption(options, key);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === "true" || value === "1") {
+    return true;
+  }
+
+  if (value === "false" || value === "0") {
+    return false;
+  }
+
+  throw new Error(`Invalid boolean option: --${key}=${value}`);
+}
+
+function parseJsonOption<TValue>(value: string, optionName: string): TValue {
+  try {
+    return JSON.parse(value) as TValue;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid JSON for ${optionName}: ${message}`);
+  }
+}
+
 function requireOption(
   options: Map<string, string[]>,
   key: string,
@@ -1004,9 +1080,14 @@ function printHelp(): void {
       "Other commands:",
       "  uset coins balance [--user-id <id>]",
       "  uset coins user-private-data [--user-id <id>]",
-      "  uset lives list [--space-key <space-key>] [--kind <value>] [--category <value>] [--query key=value]",
-      "  uset spaces list [--query key=value]",
-      "  uset spaces get --space-id <id>",
+      "  uset lives list [--kind <value>] [--category <value>] [--query key=value]",
+      "  uset lives current [--kind <value>] [--category <value>] [--query key=value]",
+      "  uset lives get --space-key <space-key> [--kind <value>] [--category <value>] [--query key=value]",
+      "  uset lives list --space-key <space-key> [--kind <value>] [--category <value>] [--query key=value]",
+      "  uset spaces list [--kind <value>] [--category <value>] [--query key=value]",
+      "  uset spaces current [--kind <value>] [--category <value>] [--query key=value]",
+      "  uset spaces get --space-key <space-key> [--kind <value>] [--category <value>] [--query key=value]",
+      "  uset spaces connection-info --space-key <space-key> [--body-json <json>]",
       "  uset invites list [--query key=value]",
       "  uset invites get --code <invite-code>",
       "  uset invites accept --code <invite-code>",

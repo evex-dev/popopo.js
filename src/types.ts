@@ -77,10 +77,16 @@ export interface AccountRegisterResult {
 
 export interface Space {
   id?: string;
+  spaceKey?: string;
+  userId?: string;
   slug?: string;
   name?: string;
   title?: string;
   description?: string;
+  onlineUsers?: string[];
+  nonMuteOnlineUserCount?: number;
+  bgm?: Record<string, unknown>;
+  background?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -89,6 +95,14 @@ export interface LiveListItem {
   liveId?: string;
   spaceId?: string;
   spaceKey?: string;
+  userId?: string;
+  token?: string;
+  genreId?: string;
+  tags?: string[];
+  canEnter?: boolean;
+  currentCount?: number;
+  selectionRecruiting?: boolean;
+  createdAt?: number;
   slug?: string;
   title?: string;
   name?: string;
@@ -103,6 +117,9 @@ export interface LiveListItem {
 }
 
 export interface HomeDisplaySpace {
+  space?: Space;
+  live?: LiveListItem;
+  thumbnail?: Record<string, unknown>;
   id?: string;
   spaceId?: string;
   spaceKey?: string;
@@ -116,6 +133,7 @@ export interface HomeDisplaySpace {
 
 export interface HomeDisplaySpacesResponse {
   spaces?: HomeDisplaySpace[];
+  pins?: Record<string, unknown>[];
   lives?: LiveListItem[];
   totalCount?: number;
   [key: string]: unknown;
@@ -124,6 +142,17 @@ export interface HomeDisplaySpacesResponse {
 export interface HomeDisplaySpacesRequest {
   kind?: string;
   category?: string;
+  [key: string]: unknown;
+}
+
+export interface SpaceLiveListRequest {
+  genreId: string;
+  tags: string[];
+  canEnter: boolean;
+  selectionRecruiting: boolean;
+  latestStartedAt?: number;
+  latestCurrentMax?: number;
+  latestOverallCount?: number;
   [key: string]: unknown;
 }
 

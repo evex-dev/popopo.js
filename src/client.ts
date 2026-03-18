@@ -33,6 +33,7 @@ import type {
   FirebaseTokenRefreshResponse,
   FirebaseVerifyPhoneNumberRequest,
   FirestoreDocument,
+  HomeDisplaySpace,
   HomeDisplaySpacesRequest,
   HomeDisplaySpacesResponse,
   Invite,
@@ -45,6 +46,7 @@ import type {
   SequencePlayStartRequest,
   SequenceRecordingStartRequest,
   Space,
+  SpaceLiveListRequest,
   TsoAuthorizationCodeRequest,
   TsoClientConfig,
   TsoFileFetchOptions,
@@ -1123,21 +1125,7 @@ export class AccountsClient {
 export class SpacesClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
-  list<TResponse = Space[]>(query?: RequestQuery): Promise<TResponse> {
-    return this.runtime.http.get<TResponse>(this.runtime.endpoints.spaces.collection, {
-      query,
-    });
-  }
-
-  getById<TResponse = Space>(spaceId: string): Promise<TResponse> {
-    return this.runtime.http.get<TResponse>(this.runtime.endpoints.spaces.byId(spaceId));
-  }
-}
-
-export class LivesClient {
-  constructor(private readonly runtime: ClientRuntime) {}
-
-  list<TResponse = HomeDisplaySpacesResponse>(
+  current<TResponse = HomeDisplaySpacesResponse>(
     request: HomeDisplaySpacesRequest = {},
     query?: RequestQuery,
   ): Promise<TResponse> {
@@ -1152,9 +1140,87 @@ export class LivesClient {
     });
   }
 
-  listBySpace<TResponse = LiveListItem[]>(
+  async list<TResponse = HomeDisplaySpace[]>(
+    request: HomeDisplaySpacesRequest = {},
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    const payload = await this.current<HomeDisplaySpacesResponse>(request, query);
+    return flattenHomeDisplaySpaces(payload) as TResponse;
+  }
+
+  async getByKey<TResponse = HomeDisplaySpace | undefined>(
+    spaceKey: string,
+    request: HomeDisplaySpacesRequest = {},
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    const spaces = await this.list<HomeDisplaySpace[]>(request, query);
+    return spaces.find((entry) => entry.space?.spaceKey === spaceKey) as TResponse;
+  }
+
+  connectionInfo<TResponse = unknown>(
     spaceKey: string,
     body: Record<string, unknown> = {},
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    return this.runtime.http.request<TResponse>({
+      method: "POST",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        `/api/v2/spaces/${encodeURIComponent(spaceKey)}/connection-info`,
+      ),
+      body,
+      query,
+    });
+  }
+}
+
+export class LivesClient {
+  constructor(private readonly runtime: ClientRuntime) {}
+
+  current<TResponse = HomeDisplaySpacesResponse>(
+    request: HomeDisplaySpacesRequest = {},
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    return this.runtime.http.request<TResponse>({
+      method: "POST",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        "/api/v2/users/me/home-display-spaces",
+      ),
+      body: request,
+      query,
+    });
+  }
+
+  async list<TResponse = LiveListItem[]>(
+    request: HomeDisplaySpacesRequest = {},
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    const payload = await this.current<HomeDisplaySpacesResponse>(request, query);
+    return flattenHomeDisplayLives(payload) as TResponse;
+  }
+
+  async getBySpaceKey<TResponse = LiveListItem[]>(
+    spaceKey: string,
+    request: HomeDisplaySpacesRequest = {},
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    const lives = await this.list<LiveListItem[]>(request, query);
+    return lives.filter((entry) => entry.spaceKey === spaceKey) as TResponse;
+  }
+
+  async getCurrentBySpaceKey<TResponse = LiveListItem | undefined>(
+    spaceKey: string,
+    request: HomeDisplaySpacesRequest = {},
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    const lives = await this.getBySpaceKey<LiveListItem[]>(spaceKey, request, query);
+    return lives[0] as TResponse;
+  }
+
+  listBySpace<TResponse = LiveListItem[]>(
+    spaceKey: string,
+    body: SpaceLiveListRequest,
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
@@ -1167,6 +1233,7 @@ export class LivesClient {
       query,
     });
   }
+
 }
 
 export class CoinsClient {
@@ -1782,6 +1849,38 @@ function requireFirebaseBearerToken(http: HttpClient): string {
   }
 
   return token;
+}
+
+function flattenHomeDisplaySpaces(
+  response: HomeDisplaySpacesResponse,
+): HomeDisplaySpace[] {
+  return Array.isArray(response.spaces) ? response.spaces : [];
+}
+
+function flattenHomeDisplayLives(
+  response: HomeDisplaySpacesResponse,
+): LiveListItem[] {
+  const lives: LiveListItem[] = [];
+
+  for (const entry of flattenHomeDisplaySpaces(response)) {
+    if (entry.live) {
+      lives.push(entry.live);
+    }
+
+    if (entry.currentLive) {
+      lives.push(entry.currentLive);
+    }
+
+    if (Array.isArray(entry.lives)) {
+      lives.push(...entry.lives);
+    }
+  }
+
+  if (Array.isArray(response.lives)) {
+    lives.push(...response.lives);
+  }
+
+  return lives;
 }
 
 function parseFirestoreDocument<TFields = Record<string, unknown>>(
