@@ -1,11 +1,7 @@
-import {
-  createDefaultEndpoints,
-  mergeEndpoints,
-  type PopopoEndpointSet,
-} from "./endpoints.ts";
-import { PopopoApiError, PopopoConfigurationError } from "./errors.ts";
-import { HttpClient, type FetchLike, type RequestQuery } from "./http.ts";
-import { inflateSync } from "node:zlib";
+import { createDefaultEndpoints, mergeEndpoints, type PopopoEndpointSet } from './endpoints.ts'
+import { PopopoApiError, PopopoConfigurationError } from './errors.ts'
+import { HttpClient, type FetchLike, type RequestQuery } from './http.ts'
+import { inflateSync } from 'node:zlib'
 import type {
   AccountRegisterResult,
   AccountProfilePatch,
@@ -22,6 +18,9 @@ import type {
   LiveSelectionParticipant,
   LiveSelectionParticipantListOptions,
   LiveSelectionParticipantListResult,
+  LiveSelectionSequence,
+  LiveSelectionSequenceListOptions,
+  LiveSelectionSequenceListResult,
   LiveSelectionListOptions,
   LiveSelectionListResult,
   LiveSelectionSequenceStartResult,
@@ -65,6 +64,7 @@ import type {
   NotificationItem,
   PersonalNotificationData,
   PersonalNotificationDeliveryContent,
+  ReceiveLatestPresentResult,
   OwnerUserIdChangeRequest,
   PushDeviceUpsertRequest,
   PushDeviceUpsertResult,
@@ -96,31 +96,29 @@ import type {
   UserIconSourceChangeRequest,
   UserProfile,
   CoinBalanceSnapshot,
-} from "./types.ts";
+} from './types.ts'
 
-export const DEFAULT_POPOPO_BASE_URL = "https://www.popopo.com";
-export const DEFAULT_POPOPO_API_BASE_URL = "https://api.popopo.com";
-export const DEFAULT_FIRESTORE_BASE_URL = "https://firestore.googleapis.com/v1";
-export const DEFAULT_FIREBASE_API_KEY = "AIzaSyAmY4T-_U3IGS_TvD5ERQsr2HQsHUmaapc";
-export const DEFAULT_FIREBASE_APP_ID =
-  "1:209007912111:android:a92e14f304f77c0c33e05a";
-export const DEFAULT_FIREBASE_AUTH_DOMAIN = "popopo.firebaseapp.com";
-export const DEFAULT_FIREBASE_PROJECT_ID = "popopo-prod";
-export const DEFAULT_FIREBASE_STORAGE_BUCKET = "popopo-prod.firebasestorage.app";
+export const DEFAULT_POPOPO_BASE_URL = 'https://www.popopo.com'
+export const DEFAULT_POPOPO_API_BASE_URL = 'https://api.popopo.com'
+export const DEFAULT_FIRESTORE_BASE_URL = 'https://firestore.googleapis.com/v1'
+export const DEFAULT_FIREBASE_API_KEY = 'AIzaSyAmY4T-_U3IGS_TvD5ERQsr2HQsHUmaapc'
+export const DEFAULT_FIREBASE_APP_ID = '1:209007912111:android:a92e14f304f77c0c33e05a'
+export const DEFAULT_FIREBASE_AUTH_DOMAIN = 'popopo.firebaseapp.com'
+export const DEFAULT_FIREBASE_PROJECT_ID = 'popopo-prod'
+export const DEFAULT_FIREBASE_STORAGE_BUCKET = 'popopo-prod.firebasestorage.app'
 export const DEFAULT_FIREBASE_WEB_CLIENT_ID =
-  "209007912111-eh2o06rp2h47lq89iheluudr53ena8o8.apps.googleusercontent.com";
+  '209007912111-eh2o06rp2h47lq89iheluudr53ena8o8.apps.googleusercontent.com'
 export const DEFAULT_FIREBASE_AUTH_BASE_URL =
-  "https://www.googleapis.com/identitytoolkit/v3/relyingparty";
-export const DEFAULT_FIREBASE_SECURE_TOKEN_BASE_URL =
-  "https://securetoken.googleapis.com/v1";
-export const DEFAULT_TSO_OAUTH_BASE_URL = "https://oauth.dev.seed.virtualcast.jp";
-const DEFAULT_FIREBASE_ANDROID_CLIENT_TYPE = "CLIENT_TYPE_ANDROID";
-const DEFAULT_FIREBASE_RECAPTCHA_VERSION = "RECAPTCHA_ENTERPRISE";
-export const DEFAULT_TENCENT_SDK_APP_ID = 20026171;
-const DEFAULT_TENCENT_TRTC_PLAY_HOST = "cloud.tencent.com";
-const DEFAULT_TENCENT_TRTC_PLAY_APP_SCENE = "live";
-export const DEFAULT_TENCENT_LIVE_PLAY_HOST = "play.live-t.popopo.com";
-const DEFAULT_TENCENT_LIVE_PLAY_PATH = "live";
+  'https://www.googleapis.com/identitytoolkit/v3/relyingparty'
+export const DEFAULT_FIREBASE_SECURE_TOKEN_BASE_URL = 'https://securetoken.googleapis.com/v1'
+export const DEFAULT_TSO_OAUTH_BASE_URL = 'https://oauth.dev.seed.virtualcast.jp'
+const DEFAULT_FIREBASE_ANDROID_CLIENT_TYPE = 'CLIENT_TYPE_ANDROID'
+const DEFAULT_FIREBASE_RECAPTCHA_VERSION = 'RECAPTCHA_ENTERPRISE'
+export const DEFAULT_TENCENT_SDK_APP_ID = 20026171
+const DEFAULT_TENCENT_TRTC_PLAY_HOST = 'cloud.tencent.com'
+const DEFAULT_TENCENT_TRTC_PLAY_APP_SCENE = 'live'
+export const DEFAULT_TENCENT_LIVE_PLAY_HOST = 'play.live-t.popopo.com'
+const DEFAULT_TENCENT_LIVE_PLAY_PATH = 'live'
 
 export const DEFAULT_FIREBASE_CONFIG: FirebaseClientConfig = {
   apiKey: DEFAULT_FIREBASE_API_KEY,
@@ -133,99 +131,99 @@ export const DEFAULT_FIREBASE_CONFIG: FirebaseClientConfig = {
   storageBucket: DEFAULT_FIREBASE_STORAGE_BUCKET,
   webClientId: DEFAULT_FIREBASE_WEB_CLIENT_ID,
   returnSecureToken: true,
-};
+}
 
 export interface PopopoClientOptions {
-  baseUrl?: string;
-  apiBaseUrl?: string;
-  apiBasePath?: string;
-  fetch?: FetchLike;
-  headers?: HeadersInit;
-  session?: AuthState;
-  firebase?: Partial<FirebaseClientConfig>;
-  tso?: Partial<TsoClientConfig>;
-  endpoints?: DeepPartial<PopopoEndpointSet>;
+  baseUrl?: string
+  apiBaseUrl?: string
+  apiBasePath?: string
+  fetch?: FetchLike
+  headers?: HeadersInit
+  session?: AuthState
+  firebase?: Partial<FirebaseClientConfig>
+  tso?: Partial<TsoClientConfig>
+  endpoints?: DeepPartial<PopopoEndpointSet>
 }
 
 interface ResolvedClientOptions {
-  baseUrl: string;
-  apiBaseUrl: string;
-  apiBasePath: string;
-  firebase: FirebaseClientConfig;
-  tso: TsoClientConfig;
+  baseUrl: string
+  apiBaseUrl: string
+  apiBasePath: string
+  firebase: FirebaseClientConfig
+  tso: TsoClientConfig
 }
 
 interface ClientRuntime {
-  readonly http: HttpClient;
-  readonly endpoints: PopopoEndpointSet;
-  readonly options: ResolvedClientOptions;
+  readonly http: HttpClient
+  readonly endpoints: PopopoEndpointSet
+  readonly options: ResolvedClientOptions
 }
 
 export class PopopoClient {
-  readonly http: HttpClient;
-  readonly auth: FirebaseAuthClient;
-  readonly accounts: AccountsClient;
-  readonly spaces: SpacesClient;
-  readonly lives: LivesClient;
-  readonly push: PushClient;
-  readonly calls: CallsClient;
-  readonly coins: CoinsClient;
-  readonly invites: InvitesClient;
-  readonly notifications: NotificationsClient;
-  readonly scenes: ScenesClient;
-  readonly sequences: SequencesClient;
-  readonly nameplates: NameplatesClient;
-  readonly tso: TsoClient;
-  readonly endpoints: PopopoEndpointSet;
+  readonly http: HttpClient
+  readonly auth: FirebaseAuthClient
+  readonly accounts: AccountsClient
+  readonly spaces: SpacesClient
+  readonly lives: LivesClient
+  readonly push: PushClient
+  readonly calls: CallsClient
+  readonly coins: CoinsClient
+  readonly invites: InvitesClient
+  readonly notifications: NotificationsClient
+  readonly scenes: ScenesClient
+  readonly sequences: SequencesClient
+  readonly nameplates: NameplatesClient
+  readonly tso: TsoClient
+  readonly endpoints: PopopoEndpointSet
 
-  private readonly runtime: ClientRuntime;
+  private readonly runtime: ClientRuntime
 
   constructor(options: PopopoClientOptions = {}) {
-    const resolved = resolveClientOptions(options);
-    const session: AuthState = { ...(options.session ?? {}) };
+    const resolved = resolveClientOptions(options)
+    const session: AuthState = { ...(options.session ?? {}) }
     const endpoints = mergeEndpoints(
       createDefaultEndpoints(resolved.apiBasePath),
       options.endpoints,
-    );
+    )
     const http = new HttpClient({
       baseUrl: resolved.baseUrl,
       session,
       fetchImplementation: options.fetch,
       defaultHeaders: options.headers,
-    });
+    })
 
     this.runtime = {
       http,
       endpoints,
       options: resolved,
-    };
-    this.http = http;
-    this.endpoints = endpoints;
-    this.auth = new FirebaseAuthClient(this.runtime);
-    this.accounts = new AccountsClient(this.runtime);
-    this.spaces = new SpacesClient(this.runtime);
-    this.lives = new LivesClient(this.runtime);
-    this.push = new PushClient(this.runtime);
-    this.calls = new CallsClient(this.runtime);
-    this.coins = new CoinsClient(this.runtime);
-    this.invites = new InvitesClient(this.runtime);
-    this.notifications = new NotificationsClient(this.runtime);
-    this.scenes = new ScenesClient(this.runtime);
-    this.sequences = new SequencesClient(this.runtime);
-    this.nameplates = new NameplatesClient(this.runtime);
-    this.tso = new TsoClient(this.runtime);
+    }
+    this.http = http
+    this.endpoints = endpoints
+    this.auth = new FirebaseAuthClient(this.runtime)
+    this.accounts = new AccountsClient(this.runtime)
+    this.spaces = new SpacesClient(this.runtime)
+    this.lives = new LivesClient(this.runtime)
+    this.push = new PushClient(this.runtime)
+    this.calls = new CallsClient(this.runtime)
+    this.coins = new CoinsClient(this.runtime)
+    this.invites = new InvitesClient(this.runtime)
+    this.notifications = new NotificationsClient(this.runtime)
+    this.scenes = new ScenesClient(this.runtime)
+    this.sequences = new SequencesClient(this.runtime)
+    this.nameplates = new NameplatesClient(this.runtime)
+    this.tso = new TsoClient(this.runtime)
   }
 
   getSession(): Readonly<AuthState> {
-    return this.http.getSession();
+    return this.http.getSession()
   }
 
   setSession(session: Partial<AuthState>): AuthState {
-    return this.http.setSession(session);
+    return this.http.setSession(session)
   }
 
   clearSession(): AuthState {
-    return this.http.clearSession();
+    return this.http.clearSession()
   }
 }
 
@@ -236,12 +234,9 @@ export class FirebaseAuthClient {
     input: FirebaseAnonymousSignInRequest = {},
   ): Promise<FirebaseAuthSession> {
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "signupNewUser",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'signupNewUser'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -250,26 +245,23 @@ export class FirebaseAuthClient {
           tenantId: this.runtime.options.firebase.tenantId,
         }),
       ),
-    });
-    const session = toFirebaseSession(payload);
+    })
+    const session = toFirebaseSession(payload)
 
     if (input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, session);
+      applyFirebaseSession(this.runtime.http, session)
     }
 
-    return session;
+    return session
   }
 
   async signUpWithEmailPassword(
     input: FirebaseEmailPasswordSignUpRequest,
   ): Promise<FirebaseAuthSession> {
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "signupNewUser",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'signupNewUser'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -283,11 +275,11 @@ export class FirebaseAuthClient {
         input.clientType,
         input.recaptchaVersion,
       ),
-    });
-    const session = toFirebaseSession(payload);
+    })
+    const session = toFirebaseSession(payload)
 
     if (input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, session);
+      applyFirebaseSession(this.runtime.http, session)
     }
 
     if (input.displayName) {
@@ -296,22 +288,19 @@ export class FirebaseAuthClient {
         displayName: input.displayName,
         returnSecureToken: true,
         persistSession: input.persistSession,
-      });
+      })
     }
 
-    return session;
+    return session
   }
 
   async signInWithEmailPassword(
     input: FirebaseEmailPasswordSignInRequest,
   ): Promise<FirebaseAuthSession> {
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "verifyPassword",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'verifyPassword'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -326,26 +315,23 @@ export class FirebaseAuthClient {
         input.clientType,
         input.recaptchaVersion,
       ),
-    });
-    const session = toFirebaseSession(payload);
+    })
+    const session = toFirebaseSession(payload)
 
     if (input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, session);
+      applyFirebaseSession(this.runtime.http, session)
     }
 
-    return session;
+    return session
   }
 
   async signInWithCustomToken(
     input: FirebaseCustomTokenSignInRequest,
   ): Promise<FirebaseAuthSession> {
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "verifyCustomToken",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'verifyCustomToken'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -354,33 +340,26 @@ export class FirebaseAuthClient {
         returnSecureToken: this.runtime.options.firebase.returnSecureToken,
         tenantId: this.runtime.options.firebase.tenantId,
       }),
-    });
-    const session = toFirebaseSession(payload);
+    })
+    const session = toFirebaseSession(payload)
 
     if (input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, session);
+      applyFirebaseSession(this.runtime.http, session)
     }
 
-    return session;
+    return session
   }
 
-  async signInWithIdp(
-    input: FirebaseIdpSignInRequest,
-  ): Promise<FirebaseAuthSession> {
+  async signInWithIdp(input: FirebaseIdpSignInRequest): Promise<FirebaseAuthSession> {
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "verifyAssertion",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'verifyAssertion'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
       body: compactObject({
-        requestUri:
-          input.requestUri ??
-          "http://localhost",
+        requestUri: input.requestUri ?? 'http://localhost',
         postBody: input.postBody,
         returnSecureToken:
           input.returnSecureToken ?? this.runtime.options.firebase.returnSecureToken,
@@ -392,14 +371,14 @@ export class FirebaseAuthClient {
         captchaResponse: input.captchaResponse,
         tenantId: input.tenantId ?? this.runtime.options.firebase.tenantId,
       }),
-    });
-    const session = toFirebaseSession(payload);
+    })
+    const session = toFirebaseSession(payload)
 
     if (input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, session);
+      applyFirebaseSession(this.runtime.http, session)
     }
 
-    return session;
+    return session
   }
 
   async signInWithCredential(
@@ -407,122 +386,117 @@ export class FirebaseAuthClient {
   ): Promise<FirebaseAuthSession | FirebasePhoneAuthResult | FirebaseIdpLinkResult> {
     if (input.token !== undefined) {
       throw new PopopoConfigurationError(
-        "Native credential token reuse is not supported in this CLI. Pass the credential fields explicitly.",
-      );
+        'Native credential token reuse is not supported in this CLI. Pass the credential fields explicitly.',
+      )
     }
 
     switch (input.signInMethod) {
-      case "google.com":
+      case 'google.com':
         return this.signInWithIdp({
           postBody: buildIdpPostBody({
-            providerId: "google.com",
+            providerId: 'google.com',
             oauthIdToken: input.idToken,
             oauthAccessToken: input.accessToken,
           }),
-          requestUri: "http://localhost",
+          requestUri: 'http://localhost',
           persistSession: input.persistSession,
-        });
-      case "facebook.com":
+        })
+      case 'facebook.com':
         return this.signInWithIdp({
           postBody: buildIdpPostBody({
-            providerId: "facebook.com",
-            oauthAccessToken: requireDefined(input.accessToken, "accessToken"),
+            providerId: 'facebook.com',
+            oauthAccessToken: requireDefined(input.accessToken, 'accessToken'),
           }),
-          requestUri: "http://localhost",
+          requestUri: 'http://localhost',
           persistSession: input.persistSession,
-        });
-      case "github.com":
+        })
+      case 'github.com':
         return this.signInWithIdp({
           postBody: buildIdpPostBody({
-            providerId: "github.com",
-            oauthAccessToken: requireDefined(input.accessToken, "accessToken"),
+            providerId: 'github.com',
+            oauthAccessToken: requireDefined(input.accessToken, 'accessToken'),
           }),
-          requestUri: "http://localhost",
+          requestUri: 'http://localhost',
           persistSession: input.persistSession,
-        });
-      case "twitter.com":
+        })
+      case 'twitter.com':
         return this.signInWithIdp({
           postBody: buildIdpPostBody({
-            providerId: "twitter.com",
-            oauthAccessToken: requireDefined(input.accessToken, "accessToken"),
-            oauthTokenSecret: requireDefined(input.secret, "secret"),
+            providerId: 'twitter.com',
+            oauthAccessToken: requireDefined(input.accessToken, 'accessToken'),
+            oauthTokenSecret: requireDefined(input.secret, 'secret'),
           }),
-          requestUri: "http://localhost",
+          requestUri: 'http://localhost',
           persistSession: input.persistSession,
-        });
-      case "playgames.google.com":
+        })
+      case 'playgames.google.com':
         return this.signInWithIdp({
           postBody: buildIdpPostBody({
-            providerId: "playgames.google.com",
-            authCode: requireDefined(input.serverAuthCode, "serverAuthCode"),
+            providerId: 'playgames.google.com',
+            authCode: requireDefined(input.serverAuthCode, 'serverAuthCode'),
           }),
-          requestUri: "http://localhost",
+          requestUri: 'http://localhost',
           persistSession: input.persistSession,
-        });
-      case "oauth":
+        })
+      case 'oauth':
         return this.signInWithIdp({
           postBody: buildIdpPostBody({
-            providerId: requireDefined(input.providerId, "providerId"),
+            providerId: requireDefined(input.providerId, 'providerId'),
             oauthIdToken: input.idToken,
             oauthAccessToken: input.accessToken,
             nonce: input.rawNonce,
           }),
-          requestUri: "http://localhost",
+          requestUri: 'http://localhost',
           persistSession: input.persistSession,
-        });
-      case "phone":
+        })
+      case 'phone':
         return this.signInWithPhoneNumber({
-          sessionInfo: requireDefined(input.verificationId, "verificationId"),
-          code: requireDefined(input.smsCode, "smsCode"),
+          sessionInfo: requireDefined(input.verificationId, 'verificationId'),
+          code: requireDefined(input.smsCode, 'smsCode'),
           persistSession: input.persistSession,
-        });
-      case "password":
+        })
+      case 'password':
         return this.signInWithEmailPassword({
-          email: requireDefined(input.email, "email"),
-          password: requireDefined(input.secret, "secret"),
+          email: requireDefined(input.email, 'email'),
+          password: requireDefined(input.secret, 'secret'),
           captchaResponse: input.captchaResponse,
           clientType: input.clientType,
           recaptchaVersion: input.recaptchaVersion,
           persistSession: input.persistSession,
-        });
-      case "emailLink":
+        })
+      case 'emailLink':
         return this.signInWithEmailLink({
-          email: requireDefined(input.email, "email"),
-          emailLink: requireDefined(input.emailLink, "emailLink"),
+          email: requireDefined(input.email, 'email'),
+          emailLink: requireDefined(input.emailLink, 'emailLink'),
           captchaResponse: input.captchaResponse,
           persistSession: input.persistSession,
-        });
+        })
       default:
         throw new PopopoConfigurationError(
           `Unsupported signInMethod: ${(input as { signInMethod: string }).signInMethod}`,
-        );
+        )
     }
   }
 
-  async linkWithIdp(
-    input: FirebaseIdpLinkRequest,
-  ): Promise<FirebaseIdpLinkResult> {
+  async linkWithIdp(input: FirebaseIdpLinkRequest): Promise<FirebaseIdpLinkResult> {
     const idToken =
       input.idToken ??
       this.runtime.http.getSession().firebaseIdToken ??
-      this.runtime.http.getSession().bearerToken;
+      this.runtime.http.getSession().bearerToken
 
     if (!idToken) {
-      throw new PopopoConfigurationError("No Firebase ID token is available.");
+      throw new PopopoConfigurationError('No Firebase ID token is available.')
     }
 
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "verifyAssertion",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'verifyAssertion'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
       body: compactObject({
-        requestUri: input.requestUri ?? "http://localhost",
+        requestUri: input.requestUri ?? 'http://localhost',
         postBody: buildIdpPostBody(input),
         returnSecureToken:
           input.returnSecureToken ?? this.runtime.options.firebase.returnSecureToken,
@@ -533,14 +507,14 @@ export class FirebaseAuthClient {
         sessionId: input.sessionId,
         tenantId: input.tenantId ?? this.runtime.options.firebase.tenantId,
       }),
-    });
-    const result = toFirebaseIdpLinkResult(payload);
+    })
+    const result = toFirebaseIdpLinkResult(payload)
 
     if (result.session && input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, result.session);
+      applyFirebaseSession(this.runtime.http, result.session)
     }
 
-    return result;
+    return result
   }
 
   async linkWithCredential(
@@ -548,103 +522,99 @@ export class FirebaseAuthClient {
   ): Promise<FirebaseAuthSession | FirebasePhoneAuthResult | FirebaseIdpLinkResult> {
     if (input.token !== undefined) {
       throw new PopopoConfigurationError(
-        "Native credential token reuse is not supported in this CLI. Pass the credential fields explicitly.",
-      );
+        'Native credential token reuse is not supported in this CLI. Pass the credential fields explicitly.',
+      )
     }
 
     switch (input.signInMethod) {
-      case "google.com":
+      case 'google.com':
         return this.linkWithIdp({
-          providerId: "google.com",
+          providerId: 'google.com',
           oauthIdToken: input.idToken,
           oauthAccessToken: input.accessToken,
           persistSession: input.persistSession,
-        });
-      case "facebook.com":
+        })
+      case 'facebook.com':
         return this.linkWithIdp({
-          providerId: "facebook.com",
-          oauthAccessToken: requireDefined(input.accessToken, "accessToken"),
+          providerId: 'facebook.com',
+          oauthAccessToken: requireDefined(input.accessToken, 'accessToken'),
           persistSession: input.persistSession,
-        });
-      case "github.com":
+        })
+      case 'github.com':
         return this.linkWithIdp({
-          providerId: "github.com",
-          oauthAccessToken: requireDefined(input.accessToken, "accessToken"),
+          providerId: 'github.com',
+          oauthAccessToken: requireDefined(input.accessToken, 'accessToken'),
           persistSession: input.persistSession,
-        });
-      case "twitter.com":
+        })
+      case 'twitter.com':
         return this.linkWithIdp({
-          providerId: "twitter.com",
-          oauthAccessToken: requireDefined(input.accessToken, "accessToken"),
-          oauthTokenSecret: requireDefined(input.secret, "secret"),
+          providerId: 'twitter.com',
+          oauthAccessToken: requireDefined(input.accessToken, 'accessToken'),
+          oauthTokenSecret: requireDefined(input.secret, 'secret'),
           persistSession: input.persistSession,
-        });
-      case "playgames.google.com":
+        })
+      case 'playgames.google.com':
         return this.linkWithIdp({
-          providerId: "playgames.google.com",
-          authCode: requireDefined(input.serverAuthCode, "serverAuthCode"),
+          providerId: 'playgames.google.com',
+          authCode: requireDefined(input.serverAuthCode, 'serverAuthCode'),
           persistSession: input.persistSession,
-        });
-      case "oauth":
+        })
+      case 'oauth':
         return this.linkWithIdp({
-          providerId: requireDefined(input.providerId, "providerId"),
+          providerId: requireDefined(input.providerId, 'providerId'),
           oauthIdToken: input.idToken,
           oauthAccessToken: input.accessToken,
           nonce: input.rawNonce,
           persistSession: input.persistSession,
-        });
-      case "phone":
+        })
+      case 'phone':
         return this.updatePhoneNumber({
-          verificationId: requireDefined(input.verificationId, "verificationId"),
-          verificationCode: requireDefined(input.smsCode, "smsCode"),
+          verificationId: requireDefined(input.verificationId, 'verificationId'),
+          verificationCode: requireDefined(input.smsCode, 'smsCode'),
           persistSession: input.persistSession,
-        });
-      case "password":
+        })
+      case 'password':
         return this.linkWithEmailPassword({
-          email: requireDefined(input.email, "email"),
-          password: requireDefined(input.secret, "secret"),
+          email: requireDefined(input.email, 'email'),
+          password: requireDefined(input.secret, 'secret'),
           captchaResponse: input.captchaResponse,
           clientType: input.clientType,
           recaptchaVersion: input.recaptchaVersion,
           persistSession: input.persistSession,
-        });
-      case "emailLink":
+        })
+      case 'emailLink':
         return this.linkWithEmailLink({
-          email: requireDefined(input.email, "email"),
-          emailLink: requireDefined(input.emailLink, "emailLink"),
+          email: requireDefined(input.email, 'email'),
+          emailLink: requireDefined(input.emailLink, 'emailLink'),
           captchaResponse: input.captchaResponse,
           persistSession: input.persistSession,
-        });
+        })
       default:
         throw new PopopoConfigurationError(
           `Unsupported signInMethod: ${(input as { signInMethod: string }).signInMethod}`,
-        );
+        )
     }
   }
 
   async linkWithEmailPassword(input: {
-    email: string;
-    password: string;
-    captchaResponse?: string;
-    clientType?: string;
-    recaptchaVersion?: string;
-    persistSession?: boolean;
+    email: string
+    password: string
+    captchaResponse?: string
+    clientType?: string
+    recaptchaVersion?: string
+    persistSession?: boolean
   }): Promise<FirebaseAuthSession> {
     const idToken =
-      this.runtime.http.getSession().firebaseIdToken ??
-      this.runtime.http.getSession().bearerToken;
+      this.runtime.http.getSession().firebaseIdToken ?? this.runtime.http.getSession().bearerToken
 
     if (!idToken) {
-      throw new PopopoConfigurationError("No Firebase ID token is available.");
+      throw new PopopoConfigurationError('No Firebase ID token is available.')
     }
 
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "signupNewUser",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'signupNewUser'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -659,29 +629,26 @@ export class FirebaseAuthClient {
         input.clientType,
         input.recaptchaVersion,
       ),
-    });
-    const session = toFirebaseSession(payload);
+    })
+    const session = toFirebaseSession(payload)
 
     if (input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, session);
+      applyFirebaseSession(this.runtime.http, session)
     }
 
-    return session;
+    return session
   }
 
   async signInWithEmailLink(input: {
-    email: string;
-    emailLink: string;
-    captchaResponse?: string;
-    persistSession?: boolean;
+    email: string
+    emailLink: string
+    captchaResponse?: string
+    persistSession?: boolean
   }): Promise<FirebaseAuthSession> {
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "emailLinkSignin",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'emailLinkSignin'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -689,37 +656,33 @@ export class FirebaseAuthClient {
         compactObject(buildEmailLinkBody(input.email, input.emailLink)),
         input.captchaResponse,
       ),
-    });
-    const session = toFirebaseSession(payload);
+    })
+    const session = toFirebaseSession(payload)
 
     if (input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, session);
+      applyFirebaseSession(this.runtime.http, session)
     }
 
-    return session;
+    return session
   }
 
   async linkWithEmailLink(input: {
-    email: string;
-    emailLink: string;
-    captchaResponse?: string;
-    persistSession?: boolean;
+    email: string
+    emailLink: string
+    captchaResponse?: string
+    persistSession?: boolean
   }): Promise<FirebaseAuthSession> {
     const idToken =
-      this.runtime.http.getSession().firebaseIdToken ??
-      this.runtime.http.getSession().bearerToken;
+      this.runtime.http.getSession().firebaseIdToken ?? this.runtime.http.getSession().bearerToken
 
     if (!idToken) {
-      throw new PopopoConfigurationError("No Firebase ID token is available.");
+      throw new PopopoConfigurationError('No Firebase ID token is available.')
     }
 
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "emailLinkSignin",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'emailLinkSignin'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -730,26 +693,23 @@ export class FirebaseAuthClient {
         }),
         input.captchaResponse,
       ),
-    });
-    const session = toFirebaseSession(payload);
+    })
+    const session = toFirebaseSession(payload)
 
     if (input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, session);
+      applyFirebaseSession(this.runtime.http, session)
     }
 
-    return session;
+    return session
   }
 
   async sendPhoneVerificationCode(
     input: FirebasePhoneVerificationCodeRequest,
   ): Promise<FirebasePhoneVerificationSession> {
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "sendVerificationCode",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'sendVerificationCode'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -769,9 +729,9 @@ export class FirebaseAuthClient {
         input.clientType,
         input.recaptchaVersion,
       ),
-    });
+    })
 
-    return toFirebasePhoneVerificationSession(payload);
+    return toFirebasePhoneVerificationSession(payload)
   }
 
   async verifyPhoneNumber(
@@ -779,12 +739,12 @@ export class FirebaseAuthClient {
   ): Promise<FirebasePhoneVerificationEvent> {
     if (input.multiFactorSessionId || input.multiFactorInfoUid) {
       throw new PopopoConfigurationError(
-        "MFA phone verification flow is not implemented in this CLI.",
-      );
+        'MFA phone verification flow is not implemented in this CLI.',
+      )
     }
 
     const session = await this.sendPhoneVerificationCode({
-      phoneNumber: requireDefined(input.phoneNumber, "phoneNumber"),
+      phoneNumber: requireDefined(input.phoneNumber, 'phoneNumber'),
       recaptchaToken: input.recaptchaToken,
       playIntegrityToken: input.playIntegrityToken,
       captchaResponse: input.captchaResponse,
@@ -792,32 +752,29 @@ export class FirebaseAuthClient {
       recaptchaVersion: input.recaptchaVersion,
       appSignatureHash: input.appSignatureHash,
       tenantId: input.tenantId,
-    });
+    })
 
     return {
-      name: "Auth#phoneCodeSent",
+      name: 'Auth#phoneCodeSent',
       verificationId: session.sessionInfo,
       forceResendingToken: input.forceResendingToken,
       raw: session.raw,
-    };
+    }
   }
 
   async signInWithPhoneNumber(input: {
-    sessionInfo?: string;
-    code?: string;
-    phoneNumber?: string;
-    temporaryProof?: string;
-    operation?: number;
-    tenantId?: string;
-    persistSession?: boolean;
+    sessionInfo?: string
+    code?: string
+    phoneNumber?: string
+    temporaryProof?: string
+    operation?: number
+    tenantId?: string
+    persistSession?: boolean
   }): Promise<FirebasePhoneAuthResult> {
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "verifyPhoneNumber",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'verifyPhoneNumber'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -829,44 +786,39 @@ export class FirebaseAuthClient {
         operation: input.operation,
         tenantId: input.tenantId ?? this.runtime.options.firebase.tenantId,
       }),
-    });
-    const result = toFirebasePhoneAuthResult(payload);
+    })
+    const result = toFirebasePhoneAuthResult(payload)
 
     if (result.session && input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, result.session);
+      applyFirebaseSession(this.runtime.http, result.session)
     }
 
-    return result;
+    return result
   }
 
-  async linkWithPhoneNumber(
-    input: FirebasePhoneLinkRequest,
-  ): Promise<FirebasePhoneAuthResult> {
+  async linkWithPhoneNumber(input: FirebasePhoneLinkRequest): Promise<FirebasePhoneAuthResult> {
     const idToken =
       input.idToken ??
       this.runtime.http.getSession().firebaseIdToken ??
-      this.runtime.http.getSession().bearerToken;
+      this.runtime.http.getSession().bearerToken
 
     if (!idToken) {
-      throw new PopopoConfigurationError("No Firebase ID token is available.");
+      throw new PopopoConfigurationError('No Firebase ID token is available.')
     }
 
-    const isSessionFlow = Boolean(input.sessionInfo || input.code);
-    const isTemporaryProofFlow = Boolean(input.phoneNumber || input.temporaryProof);
+    const isSessionFlow = Boolean(input.sessionInfo || input.code)
+    const isTemporaryProofFlow = Boolean(input.phoneNumber || input.temporaryProof)
 
     if (!isSessionFlow && !isTemporaryProofFlow) {
       throw new PopopoConfigurationError(
-        "Phone linking requires --session-info and --code, or --phone-number and --temporary-proof.",
-      );
+        'Phone linking requires --session-info and --code, or --phone-number and --temporary-proof.',
+      )
     }
 
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "verifyPhoneNumber",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'verifyPhoneNumber'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -879,58 +831,55 @@ export class FirebaseAuthClient {
         operation: input.operation,
         tenantId: input.tenantId ?? this.runtime.options.firebase.tenantId,
       }),
-    });
-    const result = toFirebasePhoneAuthResult(payload);
+    })
+    const result = toFirebasePhoneAuthResult(payload)
 
     if (result.session && input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, result.session);
+      applyFirebaseSession(this.runtime.http, result.session)
     }
 
-    return result;
+    return result
   }
 
   async updatePhoneNumber(input: {
-    verificationId: string;
-    verificationCode: string;
-    idToken?: string;
-    persistSession?: boolean;
+    verificationId: string
+    verificationCode: string
+    idToken?: string
+    persistSession?: boolean
   }): Promise<FirebasePhoneAuthResult> {
     return this.linkWithPhoneNumber({
       idToken: input.idToken,
       sessionInfo: input.verificationId,
       code: input.verificationCode,
       persistSession: input.persistSession,
-    });
+    })
   }
 
   async refreshFirebaseIdToken(
     refreshToken = this.runtime.http.getSession().refreshToken,
   ): Promise<FirebaseTokenRefreshResponse> {
     if (!refreshToken) {
-      throw new PopopoConfigurationError("No Firebase refresh token is available.");
+      throw new PopopoConfigurationError('No Firebase refresh token is available.')
     }
 
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.secureTokenBaseUrl,
-        "token",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.secureTokenBaseUrl, 'token'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
       headers: {
-        "content-type": "application/x-www-form-urlencoded",
+        'content-type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
-        grant_type: "refresh_token",
+        grant_type: 'refresh_token',
         refresh_token: refreshToken,
       }),
-    });
-    const refreshed = toFirebaseRefreshResponse(payload);
-    applyFirebaseRefresh(this.runtime.http, refreshed);
-    return refreshed;
+    })
+    const refreshed = toFirebaseRefreshResponse(payload)
+    applyFirebaseRefresh(this.runtime.http, refreshed)
+    return refreshed
   }
 
   async lookup(
@@ -938,57 +887,47 @@ export class FirebaseAuthClient {
       this.runtime.http.getSession().bearerToken,
   ): Promise<FirebaseLookupResponse> {
     if (!idToken) {
-      throw new PopopoConfigurationError("No Firebase ID token is available.");
+      throw new PopopoConfigurationError('No Firebase ID token is available.')
     }
 
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "getAccountInfo",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'getAccountInfo'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
       body: {
         idToken,
       },
-    });
+    })
 
     return {
       kind: asOptionalString(payload.kind),
-      users: Array.isArray(payload.users)
-        ? (payload.users as FirebaseAccountInfo[])
-        : undefined,
+      users: Array.isArray(payload.users) ? (payload.users as FirebaseAccountInfo[]) : undefined,
       raw: payload,
-    };
+    }
   }
 
   async getCurrentUser(): Promise<FirebaseAccountInfo | undefined> {
-    const lookup = await this.lookup();
-    return lookup.users?.[0];
+    const lookup = await this.lookup()
+    return lookup.users?.[0]
   }
 
-  async updateProfile(
-    input: FirebaseProfileUpdateRequest,
-  ): Promise<FirebaseAuthSession> {
+  async updateProfile(input: FirebaseProfileUpdateRequest): Promise<FirebaseAuthSession> {
     const idToken =
       input.idToken ??
       this.runtime.http.getSession().firebaseIdToken ??
-      this.runtime.http.getSession().bearerToken;
+      this.runtime.http.getSession().bearerToken
 
     if (!idToken) {
-      throw new PopopoConfigurationError("No Firebase ID token is available.");
+      throw new PopopoConfigurationError('No Firebase ID token is available.')
     }
 
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "setAccountInfo",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'setAccountInfo'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -1000,30 +939,24 @@ export class FirebaseAuthClient {
         deleteAttribute: input.deleteAttribute,
         deleteProvider: input.deleteProvider,
         returnSecureToken:
-          input.returnSecureToken ??
-          this.runtime.options.firebase.returnSecureToken,
+          input.returnSecureToken ?? this.runtime.options.firebase.returnSecureToken,
         tenantId: input.tenantId ?? this.runtime.options.firebase.tenantId,
       },
-    });
-    const session = toFirebaseSession(payload);
+    })
+    const session = toFirebaseSession(payload)
 
     if (input.persistSession !== false) {
-      applyFirebaseSession(this.runtime.http, session);
+      applyFirebaseSession(this.runtime.http, session)
     }
 
-    return session;
+    return session
   }
 
-  sendOobCode(
-    input: FirebaseSendOobCodeRequest,
-  ): Promise<Record<string, unknown>> {
+  sendOobCode(input: FirebaseSendOobCodeRequest): Promise<Record<string, unknown>> {
     return this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildFirebaseUrl(
-        this.runtime.options.firebase.authBaseUrl,
-        "getOobConfirmationCode",
-      ),
-      auth: "none",
+      method: 'POST',
+      url: buildFirebaseUrl(this.runtime.options.firebase.authBaseUrl, 'getOobConfirmationCode'),
+      auth: 'none',
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
@@ -1031,38 +964,38 @@ export class FirebaseAuthClient {
         ...input,
         tenantId: input.tenantId ?? this.runtime.options.firebase.tenantId,
       },
-    });
+    })
   }
 
   sendPasswordResetEmail(
     email: string,
-    options: Omit<FirebaseSendOobCodeRequest, "email" | "requestType"> = {},
+    options: Omit<FirebaseSendOobCodeRequest, 'email' | 'requestType'> = {},
   ): Promise<Record<string, unknown>> {
     return this.sendOobCode({
       ...options,
       email,
-      requestType: "PASSWORD_RESET",
-    });
+      requestType: 'PASSWORD_RESET',
+    })
   }
 
   sendEmailVerification(
     idToken = this.runtime.http.getSession().firebaseIdToken ??
       this.runtime.http.getSession().bearerToken,
-    options: Omit<FirebaseSendOobCodeRequest, "idToken" | "requestType"> = {},
+    options: Omit<FirebaseSendOobCodeRequest, 'idToken' | 'requestType'> = {},
   ): Promise<Record<string, unknown>> {
     if (!idToken) {
-      throw new PopopoConfigurationError("No Firebase ID token is available.");
+      throw new PopopoConfigurationError('No Firebase ID token is available.')
     }
 
     return this.sendOobCode({
       ...options,
       idToken,
-      requestType: "VERIFY_EMAIL",
-    });
+      requestType: 'VERIFY_EMAIL',
+    })
   }
 
   signOut(): void {
-    this.runtime.http.clearSession();
+    this.runtime.http.clearSession()
   }
 }
 
@@ -1070,36 +1003,34 @@ export class AccountsClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
   getMe<TResponse = UserProfile>(): Promise<TResponse> {
-    return this.runtime.http.get<TResponse>(this.runtime.endpoints.users.me);
+    return this.runtime.http.get<TResponse>(this.runtime.endpoints.users.me)
   }
 
   register<TResponse = AccountRegisterResult>(
     body: Record<string, unknown> = {},
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
-      method: "POST",
-      url: buildAbsoluteUrl(this.runtime.options.apiBaseUrl, "/api/v2/users"),
+      method: 'POST',
+      url: buildAbsoluteUrl(this.runtime.options.apiBaseUrl, '/api/v2/users'),
       body,
-    });
+    })
   }
 
   list<TResponse = UserProfile[]>(query?: RequestQuery): Promise<TResponse> {
     return this.runtime.http.get<TResponse>(this.runtime.endpoints.users.collection, {
       query,
-    });
+    })
   }
 
   getById<TResponse = UserProfile>(userId: string): Promise<TResponse> {
-    return this.runtime.http.get<TResponse>(this.runtime.endpoints.users.byId(userId));
+    return this.runtime.http.get<TResponse>(this.runtime.endpoints.users.byId(userId))
   }
 
-  updateMe<TResponse = UserProfile>(
-    patch: AccountProfilePatch,
-  ): Promise<TResponse> {
+  updateMe<TResponse = UserProfile>(patch: AccountProfilePatch): Promise<TResponse> {
     return this.runtime.http.patch<TResponse, AccountProfilePatch>(
       this.runtime.endpoints.users.me,
       patch,
-    );
+    )
   }
 
   changeDisplayName<TResponse = unknown>(
@@ -1109,14 +1040,11 @@ export class AccountsClient {
     const payload: UserDisplayNameChangeRequest = {
       userId,
       displayName,
-    };
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.users.updateDisplayName,
-      {
-        UserId: payload.userId,
-        DisplayName: payload.displayName,
-      },
-    );
+    }
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.users.updateDisplayName, {
+      UserId: payload.userId,
+      DisplayName: payload.displayName,
+    })
   }
 
   changeAnotherName<TResponse = unknown>(
@@ -1126,14 +1054,11 @@ export class AccountsClient {
     const payload: UserAnotherNameChangeRequest = {
       userId,
       anotherName,
-    };
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.users.updateAnotherName,
-      {
-        UserId: payload.userId,
-        AnotherName: payload.anotherName,
-      },
-    );
+    }
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.users.updateAnotherName, {
+      UserId: payload.userId,
+      AnotherName: payload.anotherName,
+    })
   }
 
   changeIconSource<TResponse = unknown>(
@@ -1143,14 +1068,11 @@ export class AccountsClient {
     const payload: UserIconSourceChangeRequest = {
       userId,
       iconSource,
-    };
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.users.updateIconSource,
-      {
-        UserId: payload.userId,
-        IconSource: payload.iconSource,
-      },
-    );
+    }
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.users.updateIconSource, {
+      UserId: payload.userId,
+      IconSource: payload.iconSource,
+    })
   }
 
   changeOwnerUserId<TResponse = unknown>(
@@ -1158,27 +1080,22 @@ export class AccountsClient {
   ): Promise<TResponse> {
     const payload: OwnerUserIdChangeRequest = {
       userId,
-    };
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.users.changeOwnerUserId,
-      {
-        UserId: payload.userId,
-      },
-    );
+    }
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.users.changeOwnerUserId, {
+      UserId: payload.userId,
+    })
   }
 }
 
 export class SpacesClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
-  create<TResponse = SpaceCreateResult>(
-    body: SpaceCreateRequest,
-  ): Promise<TResponse> {
+  create<TResponse = SpaceCreateResult>(body: SpaceCreateRequest): Promise<TResponse> {
     return this.runtime.http.request<TResponse, SpaceCreateRequest>({
-      method: "POST",
-      url: buildAbsoluteUrl(this.runtime.options.apiBaseUrl, "/api/v2/spaces"),
+      method: 'POST',
+      url: buildAbsoluteUrl(this.runtime.options.apiBaseUrl, '/api/v2/spaces'),
       body,
-    });
+    })
   }
 
   current<TResponse = HomeDisplaySpacesResponse>(
@@ -1186,22 +1103,22 @@ export class SpacesClient {
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
-      method: "POST",
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
-        "/api/v2/users/me/home-display-spaces",
+        '/api/v2/users/me/home-display-spaces',
       ),
       body: request,
       query,
-    });
+    })
   }
 
   async list<TResponse = HomeDisplaySpace[]>(
     request: HomeDisplaySpacesRequest = {},
     query?: RequestQuery,
   ): Promise<TResponse> {
-    const payload = await this.current<HomeDisplaySpacesResponse>(request, query);
-    return flattenHomeDisplaySpaces(payload) as TResponse;
+    const payload = await this.current<HomeDisplaySpacesResponse>(request, query)
+    return flattenHomeDisplaySpaces(payload) as TResponse
   }
 
   async getByKey<TResponse = HomeDisplaySpace | undefined>(
@@ -1209,8 +1126,8 @@ export class SpacesClient {
     request: HomeDisplaySpacesRequest = {},
     query?: RequestQuery,
   ): Promise<TResponse> {
-    const spaces = await this.list<HomeDisplaySpace[]>(request, query);
-    return spaces.find((entry) => entry.space?.spaceKey === spaceKey) as TResponse;
+    const spaces = await this.list<HomeDisplaySpace[]>(request, query)
+    return spaces.find((entry) => entry.space?.spaceKey === spaceKey) as TResponse
   }
 
   connectionInfo<TResponse = unknown>(
@@ -1219,14 +1136,14 @@ export class SpacesClient {
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
-      method: "POST",
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/spaces/${encodeURIComponent(spaceKey)}/connection-info`,
       ),
       body,
       query,
-    });
+    })
   }
 
   async connect(
@@ -1234,31 +1151,30 @@ export class SpacesClient {
     body: SpaceConnectionRequest = { muted: false },
     query?: RequestQuery,
   ): Promise<SpaceConnectResult> {
-    const connectionInfo = await this.connectionInfo<Record<string, unknown>>(
-      spaceKey,
-      {},
-      query,
-    );
-    const connection = await this.runtime.http.request<Record<string, unknown>, SpaceConnectionRequest>({
-      method: "POST",
+    const connectionInfo = await this.connectionInfo<Record<string, unknown>>(spaceKey, {}, query)
+    const connection = await this.runtime.http.request<
+      Record<string, unknown>,
+      SpaceConnectionRequest
+    >({
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/spaces/${encodeURIComponent(spaceKey)}/users/me/connection`,
       ),
       body,
       query,
-    });
+    })
 
     this.runtime.http.setSession({
       currentSpaceKey: spaceKey,
-    });
+    })
 
     return {
       spaceKey,
       muted: body.muted,
       connectionInfo,
       connection,
-    };
+    }
   }
 
   postMessage<TResponse = { result?: boolean; [key: string]: unknown }>(
@@ -1267,29 +1183,29 @@ export class SpacesClient {
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse, SpaceMessageCreateRequest>({
-      method: "POST",
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/spaces/${encodeURIComponent(spaceKey)}/messages`,
       ),
       body,
       query,
-    });
+    })
   }
 
   async listMessages(
     spaceKey: string,
     options: SpaceMessageListOptions = {},
   ): Promise<SpaceMessageListResult> {
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreCollectionUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath("spaces", spaceKey, "space-messages"),
+        buildFirestoreCollectionPath('spaces', spaceKey, 'space-messages'),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
@@ -1299,46 +1215,44 @@ export class SpacesClient {
         orderBy: options.orderBy,
         pageToken: options.pageToken,
       }) as RequestQuery,
-    });
+    })
 
     this.runtime.http.setSession({
       currentSpaceKey: spaceKey,
-    });
+    })
 
-    return parseSpaceMessageList(payload);
+    return parseSpaceMessageList(payload)
   }
 }
 
 export class LivesClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
-  async start<TResponse = LiveStartResult>(
-    input: {
-      spaceKey: string;
-      body: LiveStartRequest;
-      query?: RequestQuery;
-    },
-  ): Promise<TResponse> {
+  async start<TResponse = LiveStartResult>(input: {
+    spaceKey: string
+    body: LiveStartRequest
+    query?: RequestQuery
+  }): Promise<TResponse> {
     const response = await this.runtime.http.request<TResponse, LiveStartRequest>({
-      method: "POST",
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/spaces/${encodeURIComponent(input.spaceKey)}/lives`,
       ),
       body: input.body,
       query: input.query,
-    });
+    })
 
     const liveId =
       optionalString((response as Record<string, unknown>).id) ??
-      optionalString((response as Record<string, unknown>).liveId);
+      optionalString((response as Record<string, unknown>).liveId)
 
     this.runtime.http.setSession({
       currentSpaceKey: input.spaceKey,
       currentLiveId: liveId,
-    });
+    })
 
-    return response;
+    return response
   }
 
   current<TResponse = HomeDisplaySpacesResponse>(
@@ -1346,22 +1260,22 @@ export class LivesClient {
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
-      method: "POST",
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
-        "/api/v2/users/me/home-display-spaces",
+        '/api/v2/users/me/home-display-spaces',
       ),
       body: request,
       query,
-    });
+    })
   }
 
   async list<TResponse = LiveListItem[]>(
     request: HomeDisplaySpacesRequest = {},
     query?: RequestQuery,
   ): Promise<TResponse> {
-    const payload = await this.current<HomeDisplaySpacesResponse>(request, query);
-    return flattenHomeDisplayLives(payload) as TResponse;
+    const payload = await this.current<HomeDisplaySpacesResponse>(request, query)
+    return flattenHomeDisplayLives(payload) as TResponse
   }
 
   async getBySpaceKey<TResponse = LiveListItem[]>(
@@ -1369,8 +1283,8 @@ export class LivesClient {
     request: HomeDisplaySpacesRequest = {},
     query?: RequestQuery,
   ): Promise<TResponse> {
-    const lives = await this.list<LiveListItem[]>(request, query);
-    return lives.filter((entry) => entry.spaceKey === spaceKey) as TResponse;
+    const lives = await this.list<LiveListItem[]>(request, query)
+    return lives.filter((entry) => entry.spaceKey === spaceKey) as TResponse
   }
 
   async getCurrentBySpaceKey<TResponse = LiveListItem | undefined>(
@@ -1378,8 +1292,8 @@ export class LivesClient {
     request: HomeDisplaySpacesRequest = {},
     query?: RequestQuery,
   ): Promise<TResponse> {
-    const lives = await this.getBySpaceKey<LiveListItem[]>(spaceKey, request, query);
-    return lives[0] as TResponse;
+    const lives = await this.getBySpaceKey<LiveListItem[]>(spaceKey, request, query)
+    return lives[0] as TResponse
   }
 
   listBySpace<TResponse = LiveListItem[]>(
@@ -1388,14 +1302,14 @@ export class LivesClient {
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
-      method: "POST",
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/spaces/${encodeURIComponent(spaceKey)}/lives`,
       ),
       body,
       query,
-    });
+    })
   }
 
   async enter(
@@ -1403,89 +1317,89 @@ export class LivesClient {
     request: HomeDisplaySpacesRequest = {},
     query?: RequestQuery,
   ): Promise<LiveEnterResult> {
-    const live = await this.getCurrentBySpaceKey(spaceKey, request, query);
-    const liveId = live?.liveId ?? live?.id;
+    const live = await this.getCurrentBySpaceKey(spaceKey, request, query)
+    const liveId = live?.liveId ?? live?.id
 
     if (!liveId) {
-      throw new PopopoConfigurationError(
-        `No current live was found for space ${spaceKey}.`,
-      );
+      throw new PopopoConfigurationError(`No current live was found for space ${spaceKey}.`)
     }
 
     this.runtime.http.setSession({
       currentSpaceKey: spaceKey,
       currentLiveId: liveId,
-    });
+    })
 
     return {
       spaceKey,
       liveId,
       live: live as LiveListItem,
-    };
+    }
   }
 
-  async postComment<TResponse = { id?: string; [key: string]: unknown }>(
-    input: {
-      spaceKey?: string;
-      liveId?: string;
-      body: LiveCommentCreateRequest;
-      request?: HomeDisplaySpacesRequest;
-      query?: RequestQuery;
-    },
-  ): Promise<TResponse> {
-    const context = await resolveLiveContext(this.runtime, input);
+  async postComment<TResponse = { id?: string; [key: string]: unknown }>(input: {
+    spaceKey?: string
+    liveId?: string
+    body: LiveCommentCreateRequest
+    request?: HomeDisplaySpacesRequest
+    query?: RequestQuery
+  }): Promise<TResponse> {
+    const context = await resolveLiveContext(this.runtime, input)
 
     return this.runtime.http.request<TResponse, LiveCommentCreateRequest>({
-      method: "POST",
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/spaces/${encodeURIComponent(context.spaceKey)}/lives/${encodeURIComponent(context.liveId)}/comments`,
       ),
       body: input.body,
       query: input.query,
-    });
+    })
   }
 
-  async createSelection<TResponse = LiveSelectionCreateResult>(
-    input: {
-      spaceKey?: string;
-      liveId?: string;
-      body: LiveSelectionCreateRequest;
-      request?: HomeDisplaySpacesRequest;
-      query?: RequestQuery;
-    },
-  ): Promise<TResponse> {
-    const context = await resolveLiveContext(this.runtime, input);
+  async createSelection<TResponse = LiveSelectionCreateResult>(input: {
+    spaceKey?: string
+    liveId?: string
+    body: LiveSelectionCreateRequest
+    request?: HomeDisplaySpacesRequest
+    query?: RequestQuery
+  }): Promise<TResponse> {
+    const context = await resolveLiveContext(this.runtime, input)
 
     return this.runtime.http.request<TResponse, LiveSelectionCreateRequest>({
-      method: "POST",
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/spaces/${encodeURIComponent(context.spaceKey)}/lives/${encodeURIComponent(context.liveId)}/selections`,
       ),
       body: input.body,
       query: input.query,
-    });
+    })
   }
 
   async listSelections(
     input: {
-      spaceKey?: string;
-      liveId?: string;
-      options?: LiveSelectionListOptions;
-      request?: HomeDisplaySpacesRequest;
+      spaceKey?: string
+      liveId?: string
+      options?: LiveSelectionListOptions
+      request?: HomeDisplaySpacesRequest
     } = {},
   ): Promise<LiveSelectionListResult> {
-    const context = await resolveLiveContext(this.runtime, input);
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const context = await resolveLiveContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreCollectionUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath("spaces", context.spaceKey, "lives", context.liveId, "selections"),
+        buildFirestoreCollectionPath(
+          'spaces',
+          context.spaceKey,
+          'lives',
+          context.liveId,
+          'selections',
+        ),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
@@ -1495,75 +1409,71 @@ export class LivesClient {
         orderBy: input.options?.orderBy,
         pageToken: input.options?.pageToken,
       }) as RequestQuery,
-    });
+    })
 
-    return parseLiveSelectionList(payload);
+    return parseLiveSelectionList(payload)
   }
 
-  async getSelection(
-    input: {
-      spaceKey?: string;
-      liveId?: string;
-      selectionId: string;
-      request?: HomeDisplaySpacesRequest;
-      query?: RequestQuery;
-    },
-  ): Promise<LiveSelection> {
-    const context = await resolveLiveContext(this.runtime, input);
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+  async getSelection(input: {
+    spaceKey?: string
+    liveId?: string
+    selectionId: string
+    request?: HomeDisplaySpacesRequest
+    query?: RequestQuery
+  }): Promise<LiveSelection> {
+    const context = await resolveLiveContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreDocumentUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
         buildFirestoreCollectionPath(
-          "spaces",
+          'spaces',
           context.spaceKey,
-          "lives",
+          'lives',
           context.liveId,
-          "selections",
+          'selections',
           input.selectionId,
         ),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
-    });
+    })
 
-    return toLiveSelection(parseFirestoreDocument(payload));
+    return toLiveSelection(parseFirestoreDocument(payload))
   }
 
-  async listSelectionParticipants(
-    input: {
-      spaceKey?: string;
-      liveId?: string;
-      selectionId: string;
-      options?: LiveSelectionParticipantListOptions;
-      request?: HomeDisplaySpacesRequest;
-    },
-  ): Promise<LiveSelectionParticipantListResult> {
-    const context = await resolveLiveContext(this.runtime, input);
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+  async listSelectionParticipants(input: {
+    spaceKey?: string
+    liveId?: string
+    selectionId: string
+    options?: LiveSelectionParticipantListOptions
+    request?: HomeDisplaySpacesRequest
+  }): Promise<LiveSelectionParticipantListResult> {
+    const context = await resolveLiveContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreCollectionUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
         buildFirestoreCollectionPath(
-          "spaces",
+          'spaces',
           context.spaceKey,
-          "lives",
+          'lives',
           context.liveId,
-          "selections",
+          'selections',
           input.selectionId,
-          "participants",
+          'participants',
         ),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
@@ -1573,63 +1483,104 @@ export class LivesClient {
         orderBy: input.options?.orderBy,
         pageToken: input.options?.pageToken,
       }) as RequestQuery,
-    });
+    })
 
-    return parseLiveSelectionParticipantList(payload);
+    return parseLiveSelectionParticipantList(payload)
   }
 
-  async startSelectionPseudoNominate<TResponse = LiveSelectionSequenceStartResult>(
-    input: {
-      spaceKey?: string;
-      liveId?: string;
-      selectionId: string;
-      count: number;
-      sequenceId: string;
-      request?: HomeDisplaySpacesRequest;
-      query?: RequestQuery;
-    },
-  ): Promise<TResponse> {
-    return this.postSelectionSequenceAction<TResponse>({
-      ...input,
-      action: "pseudo-nominate",
-    });
+  async listSelectionSequences(input: {
+    spaceKey?: string
+    liveId?: string
+    selectionId: string
+    options?: LiveSelectionSequenceListOptions
+    request?: HomeDisplaySpacesRequest
+  }): Promise<LiveSelectionSequenceListResult> {
+    const context = await resolveLiveContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          'spaces',
+          context.spaceKey,
+          'lives',
+          context.liveId,
+          'selections',
+          input.selectionId,
+          'sequences',
+        ),
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: input.options?.limit,
+        orderBy: input.options?.orderBy,
+        pageToken: input.options?.pageToken,
+      }) as RequestQuery,
+    })
+
+    return parseLiveSelectionSequenceList(payload)
   }
 
-  async startSelectionDraw<TResponse = LiveSelectionSequenceStartResult>(
-    input: {
-      spaceKey?: string;
-      liveId?: string;
-      selectionId: string;
-      count: number;
-      sequenceId: string;
-      request?: HomeDisplaySpacesRequest;
-      query?: RequestQuery;
-    },
-  ): Promise<TResponse> {
+  async startSelectionPseudoNominate<TResponse = LiveSelectionSequenceStartResult>(input: {
+    spaceKey?: string
+    liveId?: string
+    selectionId: string
+    count: number
+    sequenceId: string
+    request?: HomeDisplaySpacesRequest
+    query?: RequestQuery
+  }): Promise<TResponse> {
     return this.postSelectionSequenceAction<TResponse>({
       ...input,
-      action: "nominate",
-    });
+      action: 'pseudo-nominate',
+    })
+  }
+
+  async startSelectionDraw<TResponse = LiveSelectionSequenceStartResult>(input: {
+    spaceKey?: string
+    liveId?: string
+    selectionId: string
+    count: number
+    sequenceId: string
+    request?: HomeDisplaySpacesRequest
+    query?: RequestQuery
+  }): Promise<TResponse> {
+    return this.postSelectionSequenceAction<TResponse>({
+      ...input,
+      action: 'nominate',
+    })
   }
 
   async listComments(
     input: {
-      spaceKey?: string;
-      liveId?: string;
-      options?: LiveCommentListOptions;
-      request?: HomeDisplaySpacesRequest;
+      spaceKey?: string
+      liveId?: string
+      options?: LiveCommentListOptions
+      request?: HomeDisplaySpacesRequest
     } = {},
   ): Promise<LiveCommentListResult> {
-    const context = await resolveLiveContext(this.runtime, input);
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const context = await resolveLiveContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreCollectionUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath("spaces", context.spaceKey, "lives", context.liveId, "comments"),
+        buildFirestoreCollectionPath(
+          'spaces',
+          context.spaceKey,
+          'lives',
+          context.liveId,
+          'comments',
+        ),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
@@ -1639,30 +1590,31 @@ export class LivesClient {
         orderBy: input.options?.orderBy,
         pageToken: input.options?.pageToken,
       }) as RequestQuery,
-    });
+    })
 
-    return parseLiveCommentList(payload);
+    return parseLiveCommentList(payload)
   }
 
-  private async postSelectionSequenceAction<TResponse>(
-    input: {
-      spaceKey?: string;
-      liveId?: string;
-      selectionId: string;
-      count: number;
-      sequenceId: string;
-      action: "nominate" | "pseudo-nominate";
-      request?: HomeDisplaySpacesRequest;
-      query?: RequestQuery;
-    },
-  ): Promise<TResponse> {
-    const context = await resolveLiveContext(this.runtime, input);
+  private async postSelectionSequenceAction<TResponse>(input: {
+    spaceKey?: string
+    liveId?: string
+    selectionId: string
+    count: number
+    sequenceId: string
+    action: 'nominate' | 'pseudo-nominate'
+    request?: HomeDisplaySpacesRequest
+    query?: RequestQuery
+  }): Promise<TResponse> {
+    const context = await resolveLiveContext(this.runtime, input)
 
-    return this.runtime.http.request<TResponse, {
-      count: number;
-      sequence: { id: string };
-    }>({
-      method: "POST",
+    return this.runtime.http.request<
+      TResponse,
+      {
+        count: number
+        sequence: { id: string }
+      }
+    >({
+      method: 'POST',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/spaces/${encodeURIComponent(context.spaceKey)}/lives/${encodeURIComponent(context.liveId)}/selections/${encodeURIComponent(input.selectionId)}/sequences/${input.action}`,
@@ -1674,83 +1626,83 @@ export class LivesClient {
         },
       },
       query: input.query,
-    });
+    })
   }
 
   async getLiveDocument(
     input: {
-      spaceKey?: string;
-      liveId?: string;
-      request?: HomeDisplaySpacesRequest;
-      query?: RequestQuery;
+      spaceKey?: string
+      liveId?: string
+      request?: HomeDisplaySpacesRequest
+      query?: RequestQuery
     } = {},
   ): Promise<FirestoreDocument<Record<string, unknown>>> {
-    const context = await resolveLiveContext(this.runtime, input);
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const context = await resolveLiveContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreDocumentUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath("spaces", context.spaceKey, "lives", context.liveId),
+        buildFirestoreCollectionPath('spaces', context.spaceKey, 'lives', context.liveId),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
-    });
+    })
 
-    return parseFirestoreDocument<Record<string, unknown>>(payload);
+    return parseFirestoreDocument<Record<string, unknown>>(payload)
   }
 
   async getReceiveInfo(
     input: {
-      spaceKey?: string;
-      liveId?: string;
-      request?: HomeDisplaySpacesRequest;
-      query?: RequestQuery;
+      spaceKey?: string
+      liveId?: string
+      request?: HomeDisplaySpacesRequest
+      query?: RequestQuery
     } = {},
   ): Promise<LiveReceiveInfo> {
-    const context = await resolveLiveContext(this.runtime, input);
-    const liveDocument = await this.getLiveDocument(input);
-    const liveFields = liveDocument.fields;
+    const context = await resolveLiveContext(this.runtime, input)
+    const liveDocument = await this.getLiveDocument(input)
+    const liveFields = liveDocument.fields
 
-    let connectionInfo: Record<string, unknown> | undefined;
-    let connectionInfoError: LiveReceiveInfo["connectionInfoError"];
+    let connectionInfo: Record<string, unknown> | undefined
+    let connectionInfoError: LiveReceiveInfo['connectionInfoError']
 
     try {
       connectionInfo = await new SpacesClient(this.runtime).connectionInfo<Record<string, unknown>>(
         context.spaceKey,
         {},
         input.query,
-      );
+      )
     } catch (error) {
       if (isIgnorableConnectionInfoError(error)) {
         connectionInfoError = {
           statusCode: error.status,
           message: error.message,
-        };
+        }
       } else {
-        throw error;
+        throw error
       }
     }
 
-    const userSig = optionalString(connectionInfo?.userSig);
-    const privateMapKey = optionalString(connectionInfo?.privateMapKey);
-    const decodedUserSig = decodeTencentCompactToken(userSig);
-    const decodedPrivateMapKey = decodeTencentCompactToken(privateMapKey);
+    const userSig = optionalString(connectionInfo?.userSig)
+    const privateMapKey = optionalString(connectionInfo?.privateMapKey)
+    const decodedUserSig = decodeTencentCompactToken(userSig)
+    const decodedPrivateMapKey = decodeTencentCompactToken(privateMapKey)
     const sdkAppId =
-      toFiniteNumber(decodedUserSig?.["TLS.sdkappid"]) ??
-      toFiniteNumber(decodedPrivateMapKey?.["TLS.sdkappid"]) ??
-      DEFAULT_TENCENT_SDK_APP_ID;
+      toFiniteNumber(decodedUserSig?.['TLS.sdkappid']) ??
+      toFiniteNumber(decodedPrivateMapKey?.['TLS.sdkappid']) ??
+      DEFAULT_TENCENT_SDK_APP_ID
     const userId =
-      optionalString(decodedUserSig?.["TLS.identifier"]) ??
-      optionalString(decodedPrivateMapKey?.["TLS.identifier"]) ??
-      this.runtime.http.getSession().userId;
-    const streamName = optionalString(liveFields.stream_name);
+      optionalString(decodedUserSig?.['TLS.identifier']) ??
+      optionalString(decodedPrivateMapKey?.['TLS.identifier']) ??
+      this.runtime.http.getSession().userId
+    const streamName = optionalString(liveFields.stream_name)
 
     return {
       spaceKey: context.spaceKey,
@@ -1760,8 +1712,8 @@ export class LivesClient {
       taskId: optionalString(liveFields.task_id),
       liveStatus: optionalString(liveFields.status),
       playbackDomain: DEFAULT_TENCENT_LIVE_PLAY_HOST,
-      liveFlvUrl: streamName ? buildTencentLivePlaybackUrl(streamName, "flv") : undefined,
-      liveHlsUrl: streamName ? buildTencentLivePlaybackUrl(streamName, "m3u8") : undefined,
+      liveFlvUrl: streamName ? buildTencentLivePlaybackUrl(streamName, 'flv') : undefined,
+      liveHlsUrl: streamName ? buildTencentLivePlaybackUrl(streamName, 'm3u8') : undefined,
       liveRtmpUrl: streamName ? buildTencentLiveRtmpUrl(streamName) : undefined,
       sdkAppId,
       userId,
@@ -1782,55 +1734,54 @@ export class LivesClient {
       liveDocument,
       connectionInfo,
       connectionInfoError,
-    };
+    }
   }
 
   async openAudioStream(
     input: {
-      spaceKey?: string;
-      liveId?: string;
-      request?: HomeDisplaySpacesRequest;
-      query?: RequestQuery;
+      spaceKey?: string
+      liveId?: string
+      request?: HomeDisplaySpacesRequest
+      query?: RequestQuery
     } = {},
   ): Promise<LiveAudioStream> {
-    const receiveInfo = await this.getReceiveInfo(input);
-    const url = receiveInfo.liveFlvUrl;
+    const receiveInfo = await this.getReceiveInfo(input)
+    const url = receiveInfo.liveFlvUrl
 
     if (!url) {
       throw new PopopoConfigurationError(
-        "Unable to resolve a playable live audio URL for this live.",
-      );
+        'Unable to resolve a playable live audio URL for this live.',
+      )
     }
 
-    const abortController = new AbortController();
+    const abortController = new AbortController()
     const response = await this.runtime.http.request<Response>({
-      method: "GET",
+      method: 'GET',
       url,
-      auth: "none",
+      auth: 'none',
       includeAppCheck: false,
-      parseAs: "response",
+      parseAs: 'response',
       signal: abortController.signal,
       headers: {
-        accept: "video/x-flv,application/octet-stream;q=0.9,*/*;q=0.1",
+        accept: 'video/x-flv,application/octet-stream;q=0.9,*/*;q=0.1',
       },
-    });
+    })
 
-    const stream = response.body;
+    const stream = response.body
 
     if (!stream) {
-      throw new PopopoConfigurationError("The live audio response does not contain a body stream.");
+      throw new PopopoConfigurationError('The live audio response does not contain a body stream.')
     }
 
     return {
       url,
-      contentType: response.headers.get("content-type") ?? undefined,
+      contentType: response.headers.get('content-type') ?? undefined,
       response,
       stream,
       receiveInfo,
       cancel: () => abortController.abort(),
-    };
+    }
   }
-
 }
 
 export class CoinsClient {
@@ -1839,38 +1790,36 @@ export class CoinsClient {
   async getUserPrivateData(
     userId = requireUserId(this.runtime.http),
   ): Promise<FirestoreDocument<UserPrivateData>> {
-    const documentPath = buildFirestoreDocumentPath("user-privates", userId);
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const documentPath = buildFirestoreDocumentPath('user-privates', userId)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreDocumentUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
         documentPath,
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
-    });
+    })
 
-    return parseFirestoreDocument<UserPrivateData>(payload);
+    return parseFirestoreDocument<UserPrivateData>(payload)
   }
 
-  async getBalance(
-    userId = requireUserId(this.runtime.http),
-  ): Promise<CoinBalanceSnapshot> {
-    const document = await this.getUserPrivateData(userId);
-    const coinBalances = normalizeCoinBalances(document.fields.coinBalances);
+  async getBalance(userId = requireUserId(this.runtime.http)): Promise<CoinBalanceSnapshot> {
+    const document = await this.getUserPrivateData(userId)
+    const coinBalances = normalizeCoinBalances(document.fields.coinBalances)
     const paidCoins =
-      pickNamedCoinBalance(coinBalances, "paid") ??
-      toFiniteNumber((document.fields as Record<string, unknown>).paidCoins);
+      pickNamedCoinBalance(coinBalances, 'paid') ??
+      toFiniteNumber((document.fields as Record<string, unknown>).paidCoins)
     const freeCoins =
-      pickNamedCoinBalance(coinBalances, "free") ??
-      toFiniteNumber((document.fields as Record<string, unknown>).freeCoins);
+      pickNamedCoinBalance(coinBalances, 'free') ??
+      toFiniteNumber((document.fields as Record<string, unknown>).freeCoins)
 
     return {
       userId,
@@ -1880,7 +1829,7 @@ export class CoinsClient {
       coinBalances,
       userPrivateData: document.fields,
       rawDocument: document,
-    };
+    }
   }
 }
 
@@ -1893,14 +1842,14 @@ export class PushClient {
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse, PushDeviceUpsertRequest>({
-      method: "PUT",
+      method: 'PUT',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/push/devices/${encodeURIComponent(deviceId)}`,
       ),
       body,
       query,
-    });
+    })
   }
 }
 
@@ -1912,14 +1861,11 @@ export class CallsClient {
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse, CallPushCreateRequest>({
-      method: "POST",
-      url: buildAbsoluteUrl(
-        this.runtime.options.apiBaseUrl,
-        "/api/v2/push/call-pushes",
-      ),
+      method: 'POST',
+      url: buildAbsoluteUrl(this.runtime.options.apiBaseUrl, '/api/v2/push/call-pushes'),
       body,
       query,
-    });
+    })
   }
 }
 
@@ -1928,42 +1874,39 @@ export class InvitesClient {
 
   list<TResponse = Invite[]>(query?: RequestQuery): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
-      method: "GET",
-      url: buildAbsoluteUrl(
-        this.runtime.options.apiBaseUrl,
-        "/api/v2/invites",
-      ),
+      method: 'GET',
+      url: buildAbsoluteUrl(this.runtime.options.apiBaseUrl, '/api/v2/invites'),
       query,
-    });
+    })
   }
 
   getByCode<TResponse = Invite>(code: string): Promise<TResponse> {
-    const inviteKey = extractInviteKey(code);
+    const inviteKey = extractInviteKey(code)
 
     return this.runtime.http.request<TResponse>({
-      method: "GET",
+      method: 'GET',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/invites/${encodeURIComponent(inviteKey)}`,
       ),
-    });
+    })
   }
 
   async accept<TResponse = InviteAcceptResult>(
     code: string,
     body?: Record<string, unknown>,
   ): Promise<TResponse> {
-    const inviteKey = extractInviteKey(code);
-    const inviteInfo = await this.getByCode<Invite>(inviteKey);
-    const kind = optionalString((inviteInfo as Record<string, unknown>).kind);
+    const inviteKey = extractInviteKey(code)
+    const inviteInfo = await this.getByCode<Invite>(inviteKey)
+    const kind = optionalString((inviteInfo as Record<string, unknown>).kind)
 
-    if (kind === "space") {
-      const spaceKey = requiredString(
-        inviteInfo as Record<string, unknown>,
-        ["spaceKey", "space_key"],
-      );
+    if (kind === 'space') {
+      const spaceKey = requiredString(inviteInfo as Record<string, unknown>, [
+        'spaceKey',
+        'space_key',
+      ])
       const response = await this.runtime.http.request<Record<string, unknown>>({
-        method: "POST",
+        method: 'POST',
         url: buildAbsoluteUrl(
           this.runtime.options.apiBaseUrl,
           `/api/v2/spaces/${encodeURIComponent(spaceKey)}/users/me`,
@@ -1972,11 +1915,11 @@ export class InvitesClient {
           inviteKey,
           ...(body ?? {}),
         }),
-      });
+      })
 
       this.runtime.http.setSession({
         currentSpaceKey: spaceKey,
-      });
+      })
 
       return {
         kind,
@@ -1984,112 +1927,104 @@ export class InvitesClient {
         inviteInfo,
         spaceKey,
         response,
-      } as TResponse;
+      } as TResponse
     }
 
-    if (kind === "friend") {
+    if (kind === 'friend') {
       const response = await this.runtime.http.request<Record<string, unknown>>({
-        method: "POST",
+        method: 'POST',
         url: buildAbsoluteUrl(
           this.runtime.options.apiBaseUrl,
           `/api/v2/users/me/use-friend-invites/${encodeURIComponent(inviteKey)}`,
         ),
         body: body ?? {},
-      });
+      })
 
       return {
         kind,
         inviteKey,
         inviteInfo,
         response,
-      } as TResponse;
+      } as TResponse
     }
 
-    throw new PopopoConfigurationError(
-      `Unsupported invite kind${kind ? `: ${kind}` : ""}.`,
-    );
+    throw new PopopoConfigurationError(`Unsupported invite kind${kind ? `: ${kind}` : ''}.`)
   }
 }
 
 export class NotificationsClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
-  async list<TResponse = NotificationItem[]>(
-    query?: RequestQuery,
-  ): Promise<TResponse> {
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+  async list<TResponse = NotificationItem[]>(query?: RequestQuery): Promise<TResponse> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreCollectionUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath("system-notifications"),
+        buildFirestoreCollectionPath('system-notifications'),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: compactObject({
         key: this.runtime.options.firebase.apiKey,
         pageSize: getNotificationPageSize(query),
-        orderBy: getNotificationOrderBy(query, "display_period.start_at desc"),
+        orderBy: getNotificationOrderBy(query, 'display_period.start_at desc'),
         pageToken: getNotificationPageToken(query),
       }) as RequestQuery,
-    });
+    })
 
-    const parsed = parseFirestoreDocumentList(payload);
-    return (
-      parsed.documents
+    const parsed = parseFirestoreDocumentList(payload)
+    return parsed.documents
       .map((document) => toSystemNotification(document))
-      .filter((item) => isPublicActiveSystemNotification(item))
-    ) as TResponse;
+      .filter((item) => isPublicActiveSystemNotification(item)) as TResponse
   }
 
-  async getById<TResponse = NotificationItem>(
-    notificationId: string,
-  ): Promise<TResponse> {
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+  async getById<TResponse = NotificationItem>(notificationId: string): Promise<TResponse> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreDocumentUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
-        buildFirestoreDocumentPath("system-notifications", notificationId),
+        buildFirestoreDocumentPath('system-notifications', notificationId),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
-    });
+    })
 
-    return toSystemNotification(parseFirestoreDocument(payload)) as TResponse;
+    return toSystemNotification(parseFirestoreDocument(payload)) as TResponse
   }
 
   markRead<TResponse = unknown>(notificationId: string): Promise<TResponse> {
     return this.runtime.http.post<TResponse>(
       this.runtime.endpoints.notifications.markRead(notificationId),
       {},
-    );
+    )
   }
 
   async listPersonal<TResponse = PersonalNotificationData[]>(
     query?: RequestQuery,
   ): Promise<TResponse> {
-    const userId = getNotificationUserId(query) ?? requireUserId(this.runtime.http);
-    const kind = getNotificationFilterKind(query);
-    const defaultOrderBy = kind ? "scheduled_delivery_at desc" : "created_at desc";
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const userId = getNotificationUserId(query) ?? requireUserId(this.runtime.http)
+    const kind = getNotificationFilterKind(query)
+    const defaultOrderBy = kind ? 'scheduled_delivery_at desc' : 'created_at desc'
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreCollectionUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath("users", userId, "personal-notifications"),
+        buildFirestoreCollectionPath('users', userId, 'personal-notifications'),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
@@ -2099,165 +2034,149 @@ export class NotificationsClient {
         orderBy: getNotificationOrderBy(query, defaultOrderBy),
         pageToken: getNotificationPageToken(query),
       }) as RequestQuery,
-    });
+    })
 
-    const parsed = parseFirestoreDocumentList(payload);
-    const items = parsed.documents.map((document) => toPersonalNotification(document));
+    const parsed = parseFirestoreDocumentList(payload)
+    const items = parsed.documents.map((document) => toPersonalNotification(document))
 
-    return (kind
-      ? items.filter((item) => item.kind === kind)
-      : items) as TResponse;
+    return (kind ? items.filter((item) => item.kind === kind) : items) as TResponse
   }
 
   async getPersonalById<TResponse = PersonalNotificationData>(
     notificationId: string,
     query?: RequestQuery,
   ): Promise<TResponse> {
-    const userId = getNotificationUserId(query) ?? requireUserId(this.runtime.http);
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const userId = getNotificationUserId(query) ?? requireUserId(this.runtime.http)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "GET",
+      method: 'GET',
       url: buildFirestoreDocumentUrl(
         this.runtime.options.firebase.firestoreBaseUrl,
         this.runtime.options.firebase.projectId,
-        buildFirestoreCollectionPath(
-          "users",
-          userId,
-          "personal-notifications",
-          notificationId,
-        ),
+        buildFirestoreCollectionPath('users', userId, 'personal-notifications', notificationId),
       ),
-      auth: "none",
+      auth: 'none',
       headers: {
         authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: {
         key: this.runtime.options.firebase.apiKey,
       },
-    });
+    })
 
-    return toPersonalNotification(parseFirestoreDocument(payload)) as TResponse;
+    return toPersonalNotification(parseFirestoreDocument(payload)) as TResponse
   }
 
   receivePersonalDeliveryContent<TResponse = PersonalNotificationDeliveryContent>(
     notificationId: string,
-    request: ReceivePersonalNotificationDeliveryContentRequest = { status: "received" },
+    request: ReceivePersonalNotificationDeliveryContentRequest = { status: 'received' },
     query?: RequestQuery,
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
-      method: "PUT",
+      method: 'PUT',
       url: buildAbsoluteUrl(
         this.runtime.options.apiBaseUrl,
         `/api/v2/personal-notifications/${encodeURIComponent(notificationId)}/delivery-content`,
       ),
       body: {
-        status: "received",
+        status: 'received',
         ...request,
       },
       query,
-    });
+    })
+  }
+
+  async receiveLatestPresent<TResponse = ReceiveLatestPresentResult>(
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    const notifications = await this.listPersonal<PersonalNotificationData[]>(
+      compactObject({
+        ...query,
+        kind: 'present',
+      }) as RequestQuery,
+    )
+    const notification = notifications.find((item) => !isPersonalNotificationReceived(item))
+
+    if (!notification?.personalNotificationId) {
+      throw new PopopoConfigurationError('No unreceived present notification is available.')
+    }
+
+    const response = await this.receivePersonalDeliveryContent(
+      notification.personalNotificationId,
+      { status: 'received' },
+    )
+
+    return {
+      notification,
+      response,
+    } as TResponse
   }
 }
 
 export class ScenesClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
-  load<TResponse = unknown>(
-    request: SceneLoadRequest = {},
-  ): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.ipc.sceneLoad,
-      request,
-    );
+  load<TResponse = unknown>(request: SceneLoadRequest = {}): Promise<TResponse> {
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.ipc.sceneLoad, request)
   }
 
   exit<TResponse = unknown>(): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.ipc.sceneExit,
-      {},
-    );
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.ipc.sceneExit, {})
   }
 
   cancelCurrent<TResponse = unknown>(): Promise<TResponse> {
     return this.runtime.http.post<TResponse>(
       this.runtime.endpoints.ipc.cancelCurrentSceneRequests,
       {},
-    );
+    )
   }
 }
 
 export class SequencesClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
-  startPlayback<TResponse = unknown>(
-    request: SequencePlayStartRequest,
-  ): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.ipc.sequencePlayStart,
-      {
-        JsonPath: request.jsonPath,
-      },
-    );
+  startPlayback<TResponse = unknown>(request: SequencePlayStartRequest): Promise<TResponse> {
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.ipc.sequencePlayStart, {
+      JsonPath: request.jsonPath,
+    })
   }
 
   stopPlayback<TResponse = unknown>(): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.ipc.sequencePlayStop,
-      {},
-    );
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.ipc.sequencePlayStop, {})
   }
 
-  startRecording<TResponse = unknown>(
-    request: SequenceRecordingStartRequest,
-  ): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.ipc.sequenceRecordingStart,
-      {
-        SequenceName: request.sequenceName,
-      },
-    );
+  startRecording<TResponse = unknown>(request: SequenceRecordingStartRequest): Promise<TResponse> {
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.ipc.sequenceRecordingStart, {
+      SequenceName: request.sequenceName,
+    })
   }
 
   stopRecording<TResponse = unknown>(): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.ipc.sequenceRecordingStop,
-      {},
-    );
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.ipc.sequenceRecordingStop, {})
   }
 }
 
 export class NameplatesClient {
   constructor(private readonly runtime: ClientRuntime) {}
 
-  displayNormal<TResponse = unknown>(
-    message: NameplateNormalDisplayedMessage,
-  ): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.ipc.nameplateNormal,
-      {
-        Id: message.id,
-        PositionType: message.positionType,
-      },
-    );
+  displayNormal<TResponse = unknown>(message: NameplateNormalDisplayedMessage): Promise<TResponse> {
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.ipc.nameplateNormal, {
+      Id: message.id,
+      PositionType: message.positionType,
+    })
   }
 
   displaySpecial<TResponse = unknown>(
     message: NameplateSpecialDisplayedMessage,
   ): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.ipc.nameplateSpecial,
-      {
-        Id: message.id,
-        NameplateTemplateId: message.nameplateTemplateId,
-      },
-    );
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.ipc.nameplateSpecial, {
+      Id: message.id,
+      NameplateTemplateId: message.nameplateTemplateId,
+    })
   }
 
   clear<TResponse = unknown>(): Promise<TResponse> {
-    return this.runtime.http.post<TResponse>(
-      this.runtime.endpoints.ipc.nameplateClear,
-      {},
-    );
+    return this.runtime.http.post<TResponse>(this.runtime.endpoints.ipc.nameplateClear, {})
   }
 }
 
@@ -2268,82 +2187,80 @@ export class TsoClient {
     input: TsoAuthorizationCodeRequest,
   ): Promise<TsoOAuthTokenResponse> {
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildAbsoluteUrl(this.runtime.options.tso.oauthBaseUrl, "/oauth/token"),
-      auth: "none",
+      method: 'POST',
+      url: buildAbsoluteUrl(this.runtime.options.tso.oauthBaseUrl, '/oauth/token'),
+      auth: 'none',
       headers: {
-        "content-type": "application/x-www-form-urlencoded",
+        'content-type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams(compactStringRecord({
-        grant_type: "authorization_code",
-        code: input.code,
-        code_verifier: input.codeVerifier,
-        redirect_uri: input.redirectUri ?? this.runtime.options.tso.redirectUri,
-        client_id: input.clientId ?? this.runtime.options.tso.clientId,
-        client_secret: input.clientSecret ?? this.runtime.options.tso.clientSecret,
-      })),
-    });
+      body: new URLSearchParams(
+        compactStringRecord({
+          grant_type: 'authorization_code',
+          code: input.code,
+          code_verifier: input.codeVerifier,
+          redirect_uri: input.redirectUri ?? this.runtime.options.tso.redirectUri,
+          client_id: input.clientId ?? this.runtime.options.tso.clientId,
+          client_secret: input.clientSecret ?? this.runtime.options.tso.clientSecret,
+        }),
+      ),
+    })
 
-    return toTsoTokenResponse(payload);
+    return toTsoTokenResponse(payload)
   }
 
-  async refreshAccessToken(
-    input: TsoRefreshTokenRequest | string,
-  ): Promise<TsoOAuthTokenResponse> {
-    const request =
-      typeof input === "string" ? { refreshToken: input } : input;
+  async refreshAccessToken(input: TsoRefreshTokenRequest | string): Promise<TsoOAuthTokenResponse> {
+    const request = typeof input === 'string' ? { refreshToken: input } : input
 
     const payload = await this.runtime.http.request<Record<string, unknown>>({
-      method: "POST",
-      url: buildAbsoluteUrl(this.runtime.options.tso.oauthBaseUrl, "/oauth/token"),
-      auth: "none",
+      method: 'POST',
+      url: buildAbsoluteUrl(this.runtime.options.tso.oauthBaseUrl, '/oauth/token'),
+      auth: 'none',
       headers: {
-        "content-type": "application/x-www-form-urlencoded",
+        'content-type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams(compactStringRecord({
-        grant_type: "refresh_token",
-        refresh_token: request.refreshToken,
-        client_id: request.clientId ?? this.runtime.options.tso.clientId,
-        client_secret: request.clientSecret ?? this.runtime.options.tso.clientSecret,
-      })),
-    });
+      body: new URLSearchParams(
+        compactStringRecord({
+          grant_type: 'refresh_token',
+          refresh_token: request.refreshToken,
+          client_id: request.clientId ?? this.runtime.options.tso.clientId,
+          client_secret: request.clientSecret ?? this.runtime.options.tso.clientSecret,
+        }),
+      ),
+    })
 
-    return toTsoTokenResponse(payload);
+    return toTsoTokenResponse(payload)
   }
 
   buildFileFetchUrl(fileId: string, options: TsoFileFetchOptions = {}): string {
-    const baseUrl = requireTsoFileApiBaseUrl(this.runtime.options.tso);
-    const url = new URL("/", ensureTrailingSlash(baseUrl));
-    const clientId = options.clientId ?? this.runtime.options.tso.clientId;
+    const baseUrl = requireTsoFileApiBaseUrl(this.runtime.options.tso)
+    const url = new URL('/', ensureTrailingSlash(baseUrl))
+    const clientId = options.clientId ?? this.runtime.options.tso.clientId
 
-    url.searchParams.set("file_id", fileId);
+    url.searchParams.set('file_id', fileId)
 
     if (clientId) {
-      url.searchParams.set("client_id", clientId);
+      url.searchParams.set('client_id', clientId)
     }
 
     if (options.isModifierEnabled) {
-      url.searchParams.set("is_enabled_modifier", "true");
+      url.searchParams.set('is_enabled_modifier', 'true')
     }
 
-    return url.toString();
+    return url.toString()
   }
 
-  buildFileStatusUrl(
-    fileId: string,
-    options: TsoFileStatusOptions = {},
-  ): string {
-    const baseUrl = requireTsoFileApiBaseUrl(this.runtime.options.tso);
-    const url = new URL("/status", ensureTrailingSlash(baseUrl));
-    const clientId = options.clientId ?? this.runtime.options.tso.clientId;
+  buildFileStatusUrl(fileId: string, options: TsoFileStatusOptions = {}): string {
+    const baseUrl = requireTsoFileApiBaseUrl(this.runtime.options.tso)
+    const url = new URL('/status', ensureTrailingSlash(baseUrl))
+    const clientId = options.clientId ?? this.runtime.options.tso.clientId
 
-    url.searchParams.set("file_id", fileId);
+    url.searchParams.set('file_id', fileId)
 
     if (clientId) {
-      url.searchParams.set("client_id", clientId);
+      url.searchParams.set('client_id', clientId)
     }
 
-    return url.toString();
+    return url.toString()
   }
 
   fetchFileStatus<TResponse = unknown>(
@@ -2351,22 +2268,19 @@ export class TsoClient {
     options: TsoFileStatusOptions = {},
   ): Promise<TResponse> {
     return this.runtime.http.request<TResponse>({
-      method: "GET",
+      method: 'GET',
       url: this.buildFileStatusUrl(fileId, options),
-      auth: "none",
-    });
+      auth: 'none',
+    })
   }
 
-  fetchFile(
-    fileId: string,
-    options: TsoFileFetchOptions = {},
-  ): Promise<Response> {
+  fetchFile(fileId: string, options: TsoFileFetchOptions = {}): Promise<Response> {
     return this.runtime.http.request<Response>({
-      method: "GET",
+      method: 'GET',
       url: this.buildFileFetchUrl(fileId, options),
-      auth: "none",
-      parseAs: "response",
-    });
+      auth: 'none',
+      parseAs: 'response',
+    })
   }
 }
 
@@ -2374,42 +2288,35 @@ function resolveClientOptions(options: PopopoClientOptions): ResolvedClientOptio
   return {
     baseUrl: options.baseUrl ?? DEFAULT_POPOPO_BASE_URL,
     apiBaseUrl: options.apiBaseUrl ?? DEFAULT_POPOPO_API_BASE_URL,
-    apiBasePath: options.apiBasePath ?? "",
+    apiBasePath: options.apiBasePath ?? '',
     firebase: {
       apiKey: options.firebase?.apiKey ?? DEFAULT_FIREBASE_CONFIG.apiKey,
       appId: options.firebase?.appId ?? DEFAULT_FIREBASE_CONFIG.appId,
-      authBaseUrl:
-        options.firebase?.authBaseUrl ?? DEFAULT_FIREBASE_CONFIG.authBaseUrl,
-      authDomain:
-        options.firebase?.authDomain ?? DEFAULT_FIREBASE_CONFIG.authDomain,
+      authBaseUrl: options.firebase?.authBaseUrl ?? DEFAULT_FIREBASE_CONFIG.authBaseUrl,
+      authDomain: options.firebase?.authDomain ?? DEFAULT_FIREBASE_CONFIG.authDomain,
       firestoreBaseUrl:
         options.firebase?.firestoreBaseUrl ?? DEFAULT_FIREBASE_CONFIG.firestoreBaseUrl,
-      projectId:
-        options.firebase?.projectId ?? DEFAULT_FIREBASE_CONFIG.projectId,
+      projectId: options.firebase?.projectId ?? DEFAULT_FIREBASE_CONFIG.projectId,
       secureTokenBaseUrl:
-        options.firebase?.secureTokenBaseUrl ??
-        DEFAULT_FIREBASE_CONFIG.secureTokenBaseUrl,
-      storageBucket:
-        options.firebase?.storageBucket ?? DEFAULT_FIREBASE_CONFIG.storageBucket,
-      webClientId:
-        options.firebase?.webClientId ?? DEFAULT_FIREBASE_CONFIG.webClientId,
+        options.firebase?.secureTokenBaseUrl ?? DEFAULT_FIREBASE_CONFIG.secureTokenBaseUrl,
+      storageBucket: options.firebase?.storageBucket ?? DEFAULT_FIREBASE_CONFIG.storageBucket,
+      webClientId: options.firebase?.webClientId ?? DEFAULT_FIREBASE_CONFIG.webClientId,
       returnSecureToken:
         options.firebase?.returnSecureToken ?? DEFAULT_FIREBASE_CONFIG.returnSecureToken,
       tenantId: options.firebase?.tenantId,
     },
     tso: {
-      oauthBaseUrl:
-        options.tso?.oauthBaseUrl ?? DEFAULT_TSO_OAUTH_BASE_URL,
+      oauthBaseUrl: options.tso?.oauthBaseUrl ?? DEFAULT_TSO_OAUTH_BASE_URL,
       fileApiBaseUrl: options.tso?.fileApiBaseUrl,
       clientId: options.tso?.clientId,
       clientSecret: options.tso?.clientSecret,
       redirectUri: options.tso?.redirectUri,
     },
-  };
+  }
 }
 
 function buildFirebaseUrl(baseUrl: string, suffix: string): string {
-  return buildAbsoluteUrl(baseUrl, `/${suffix}`);
+  return buildAbsoluteUrl(baseUrl, `/${suffix}`)
 }
 
 function buildFirestoreDocumentUrl(
@@ -2420,7 +2327,7 @@ function buildFirestoreDocumentUrl(
   return buildAbsoluteUrl(
     baseUrl,
     `/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${documentPath}`,
-  );
+  )
 }
 
 function buildFirestoreCollectionUrl(
@@ -2431,104 +2338,95 @@ function buildFirestoreCollectionUrl(
   return buildAbsoluteUrl(
     baseUrl,
     `/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/${collectionPath}`,
-  );
+  )
 }
 
-function buildFirestoreDocumentPath(
-  collectionId: string,
-  documentId: string,
-): string {
-  return `${encodeURIComponent(collectionId)}/${encodeURIComponent(documentId)}`;
+function buildFirestoreDocumentPath(collectionId: string, documentId: string): string {
+  return `${encodeURIComponent(collectionId)}/${encodeURIComponent(documentId)}`
 }
 
 function buildFirestoreCollectionPath(...segments: string[]): string {
-  return segments.map((segment) => encodeURIComponent(segment)).join("/");
+  return segments.map((segment) => encodeURIComponent(segment)).join('/')
 }
 
 function buildAbsoluteUrl(baseUrl: string, suffix: string): string {
-  const url = new URL(ensureTrailingSlash(baseUrl));
-  const normalizedBasePath = url.pathname.replace(/\/+$/, "");
-  const normalizedSuffix = suffix.replace(/^\/+/, "");
+  const url = new URL(ensureTrailingSlash(baseUrl))
+  const normalizedBasePath = url.pathname.replace(/\/+$/, '')
+  const normalizedSuffix = suffix.replace(/^\/+/, '')
 
-  url.pathname =
-    `${normalizedBasePath}/${normalizedSuffix}`.replace(/\/{2,}/g, "/");
+  url.pathname = `${normalizedBasePath}/${normalizedSuffix}`.replace(/\/{2,}/g, '/')
 
-  return url.toString();
+  return url.toString()
 }
 
 function buildIdpPostBody(input: FirebaseIdpCredentialInput): string {
-  const postBody = new URLSearchParams();
+  const postBody = new URLSearchParams()
 
   if (input.oauthIdToken) {
-    postBody.set("id_token", input.oauthIdToken);
+    postBody.set('id_token', input.oauthIdToken)
   }
 
   if (input.oauthAccessToken) {
-    postBody.set("access_token", input.oauthAccessToken);
+    postBody.set('access_token', input.oauthAccessToken)
   }
 
   if (input.identifier) {
-    postBody.set("identifier", input.identifier);
+    postBody.set('identifier', input.identifier)
   }
 
   if (input.oauthTokenSecret) {
-    postBody.set("oauth_token_secret", input.oauthTokenSecret);
+    postBody.set('oauth_token_secret', input.oauthTokenSecret)
   }
 
   if (input.authCode) {
-    postBody.set("code", input.authCode);
+    postBody.set('code', input.authCode)
   }
 
   if (input.nonce) {
-    postBody.set("nonce", input.nonce);
+    postBody.set('nonce', input.nonce)
   }
 
-  if (![...postBody.keys()].some((key) => key !== "identifier")) {
+  if (![...postBody.keys()].some((key) => key !== 'identifier')) {
     throw new PopopoConfigurationError(
-      "IDP linking requires at least one provider token or auth code.",
-    );
+      'IDP linking requires at least one provider token or auth code.',
+    )
   }
 
-  postBody.set("providerId", input.providerId);
-  return postBody.toString();
+  postBody.set('providerId', input.providerId)
+  return postBody.toString()
 }
 
-function buildEmailLinkBody(
-  email: string,
-  emailLink: string,
-): Record<string, string | undefined> {
-  const parsed = tryParseEmailLink(emailLink);
+function buildEmailLinkBody(email: string, emailLink: string): Record<string, string | undefined> {
+  const parsed = tryParseEmailLink(emailLink)
 
   return {
     email,
     oobCode: parsed?.oobCode,
     tenantId: parsed?.tenantId,
-  };
+  }
 }
 
-function tryParseEmailLink(
-  emailLink: string,
-): { oobCode?: string; tenantId?: string } | undefined {
+function tryParseEmailLink(emailLink: string): { oobCode?: string; tenantId?: string } | undefined {
   try {
-    const url = new URL(emailLink);
+    const url = new URL(emailLink)
     return {
-      oobCode: url.searchParams.get("oobCode") ?? undefined,
-      tenantId: url.searchParams.get("tenantId") ?? undefined,
-    };
+      oobCode: url.searchParams.get('oobCode') ?? undefined,
+      tenantId: url.searchParams.get('tenantId') ?? undefined,
+    }
   } catch {
-    return undefined;
+    return undefined
   }
 }
 
 function ensureTrailingSlash(url: string): string {
-  return url.endsWith("/") ? url : `${url}/`;
+  return url.endsWith('/') ? url : `${url}/`
 }
 
 function toFirebaseSession(payload: Record<string, unknown>): FirebaseAuthSession {
-  const idToken = requiredString(payload, ["idToken", "id_token"]);
-  const refreshToken = requiredString(payload, ["refreshToken", "refresh_token"]);
-  const localId = requiredString(payload, ["localId", "user_id"]);
-  const expiresIn = requiredNumber(payload, ["expiresIn", "expires_in"]);
+  const idToken = requiredString(payload, ['idToken', 'id_token'])
+  const refreshToken = requiredString(payload, ['refreshToken', 'refresh_token'])
+  const localId = requiredString(payload, ['localId', 'user_id'])
+  const expiresIn = requiredNumber(payload, ['expiresIn', 'expires_in'])
 
   return {
     kind: asOptionalString(payload.kind),
@@ -2538,84 +2436,72 @@ function toFirebaseSession(payload: Record<string, unknown>): FirebaseAuthSessio
     localId,
     email: asOptionalString(payload.email),
     displayName: asOptionalString(payload.displayName),
-    registered: typeof payload.registered === "boolean" ? payload.registered : undefined,
+    registered: typeof payload.registered === 'boolean' ? payload.registered : undefined,
     photoUrl: asOptionalString(payload.photoUrl),
     raw: payload,
-  };
+  }
 }
 
-function toFirebaseIdpLinkResult(
-  payload: Record<string, unknown>,
-): FirebaseIdpLinkResult {
+function toFirebaseIdpLinkResult(payload: Record<string, unknown>): FirebaseIdpLinkResult {
   return {
     session: maybeToFirebaseSession(payload),
     providerId: asOptionalString(payload.providerId),
     email: asOptionalString(payload.email),
     rawUserInfo: asOptionalString(payload.rawUserInfo),
-    isNewUser: typeof payload.isNewUser === "boolean" ? payload.isNewUser : undefined,
+    isNewUser: typeof payload.isNewUser === 'boolean' ? payload.isNewUser : undefined,
     needConfirmation:
-      typeof payload.needConfirmation === "boolean"
-        ? payload.needConfirmation
-        : undefined,
+      typeof payload.needConfirmation === 'boolean' ? payload.needConfirmation : undefined,
     pendingToken: asOptionalString(payload.pendingToken),
     tenantId: asOptionalString(payload.tenantId),
     errorMessage: asOptionalString(payload.errorMessage),
     raw: payload,
-  };
+  }
 }
 
-function toFirebaseRefreshResponse(
-  payload: Record<string, unknown>,
-): FirebaseTokenRefreshResponse {
+function toFirebaseRefreshResponse(payload: Record<string, unknown>): FirebaseTokenRefreshResponse {
   return {
-    accessToken: requiredString(payload, ["access_token", "accessToken"]),
-    expiresIn: requiredNumber(payload, ["expires_in", "expiresIn"]),
-    idToken: requiredString(payload, ["id_token", "idToken"]),
+    accessToken: requiredString(payload, ['access_token', 'accessToken']),
+    expiresIn: requiredNumber(payload, ['expires_in', 'expiresIn']),
+    idToken: requiredString(payload, ['id_token', 'idToken']),
     projectId: asOptionalString(payload.project_id),
-    refreshToken: requiredString(payload, ["refresh_token", "refreshToken"]),
+    refreshToken: requiredString(payload, ['refresh_token', 'refreshToken']),
     tokenType: asOptionalString(payload.token_type),
-    userId: requiredString(payload, ["user_id", "localId"]),
+    userId: requiredString(payload, ['user_id', 'localId']),
     raw: payload,
-  };
+  }
 }
 
 function toTsoTokenResponse(payload: Record<string, unknown>): TsoOAuthTokenResponse {
   return {
     tokenType: asOptionalString(payload.token_type),
-    expiresIn: requiredNumber(payload, ["expires_in", "expiresIn"]),
-    accessToken: requiredString(payload, ["access_token", "accessToken"]),
+    expiresIn: requiredNumber(payload, ['expires_in', 'expiresIn']),
+    accessToken: requiredString(payload, ['access_token', 'accessToken']),
     refreshToken: asOptionalString(payload.refresh_token),
     scope: asOptionalString(payload.scope),
     raw: payload,
-  };
+  }
 }
 
 function toFirebasePhoneVerificationSession(
   payload: Record<string, unknown>,
 ): FirebasePhoneVerificationSession {
   return {
-    sessionInfo: requiredString(payload, ["sessionInfo"]),
+    sessionInfo: requiredString(payload, ['sessionInfo']),
     raw: payload,
-  };
+  }
 }
 
-function toFirebasePhoneAuthResult(
-  payload: Record<string, unknown>,
-): FirebasePhoneAuthResult {
+function toFirebasePhoneAuthResult(payload: Record<string, unknown>): FirebasePhoneAuthResult {
   return {
     session: maybeToFirebaseSession(payload),
     phoneNumber: asOptionalString(payload.phoneNumber),
     temporaryProof: asOptionalString(payload.temporaryProof),
-    temporaryProofExpiresIn: optionalNumber(payload, [
-      "temporaryProofExpiresIn",
-    ]),
+    temporaryProofExpiresIn: optionalNumber(payload, ['temporaryProofExpiresIn']),
     verificationProof: asOptionalString(payload.verificationProof),
-    verificationProofExpiresIn: optionalNumber(payload, [
-      "verificationProofExpiresIn",
-    ]),
-    isNewUser: typeof payload.isNewUser === "boolean" ? payload.isNewUser : undefined,
+    verificationProofExpiresIn: optionalNumber(payload, ['verificationProofExpiresIn']),
+    isNewUser: typeof payload.isNewUser === 'boolean' ? payload.isNewUser : undefined,
     raw: payload,
-  };
+  }
 }
 
 function applyFirebaseSession(http: HttpClient, session: FirebaseAuthSession): void {
@@ -2625,19 +2511,16 @@ function applyFirebaseSession(http: HttpClient, session: FirebaseAuthSession): v
     refreshToken: session.refreshToken,
     userId: session.localId,
     email: session.email,
-  });
+  })
 }
 
-function applyFirebaseRefresh(
-  http: HttpClient,
-  refresh: FirebaseTokenRefreshResponse,
-): void {
+function applyFirebaseRefresh(http: HttpClient, refresh: FirebaseTokenRefreshResponse): void {
   http.setSession({
     bearerToken: refresh.idToken,
     firebaseIdToken: refresh.idToken,
     refreshToken: refresh.refreshToken,
     userId: refresh.userId,
-  });
+  })
 }
 
 function withAndroidClientInfo(
@@ -2649,124 +2532,116 @@ function withAndroidClientInfo(
   const next = compactObject({
     ...record,
     clientType: clientType ?? DEFAULT_FIREBASE_ANDROID_CLIENT_TYPE,
-  });
+  })
 
   if (!captchaResponse) {
-    return next;
+    return next
   }
 
   return compactObject({
     ...next,
     captchaResponse,
     recaptchaVersion: recaptchaVersion ?? DEFAULT_FIREBASE_RECAPTCHA_VERSION,
-  });
+  })
 }
 
 function requireUserId(http: HttpClient): string {
-  const userId = http.getSession().userId;
+  const userId = http.getSession().userId
 
   if (!userId) {
     throw new PopopoConfigurationError(
-      "No userId is available. Sign in first or set `session.userId` explicitly.",
-    );
+      'No userId is available. Sign in first or set `session.userId` explicitly.',
+    )
   }
 
-  return userId;
+  return userId
 }
 
 async function ensureFirebaseBearerToken(runtime: ClientRuntime): Promise<string> {
-  const session = runtime.http.getSession();
-  const token = session.firebaseIdToken ?? session.bearerToken;
+  const session = runtime.http.getSession()
+  const token = session.firebaseIdToken ?? session.bearerToken
 
   if (!token && !session.refreshToken) {
     throw new PopopoConfigurationError(
-      "No Firebase ID token is available. Sign in first or set `session.firebaseIdToken` explicitly.",
-    );
+      'No Firebase ID token is available. Sign in first or set `session.firebaseIdToken` explicitly.',
+    )
   }
 
   if (!token || isJwtExpired(token)) {
     const refreshed = await new FirebaseAuthClient(runtime).refreshFirebaseIdToken(
       session.refreshToken,
-    );
-    return refreshed.idToken;
+    )
+    return refreshed.idToken
   }
 
-  return token;
+  return token
 }
 
 function isJwtExpired(token: string, skewSeconds = 60): boolean {
-  const payload = decodeJwtPayload(token);
-  const exp = payload?.exp;
+  const payload = decodeJwtPayload(token)
+  const exp = payload?.exp
 
-  if (typeof exp !== "number" || !Number.isFinite(exp)) {
-    return false;
+  if (typeof exp !== 'number' || !Number.isFinite(exp)) {
+    return false
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  return exp <= now + skewSeconds;
+  const now = Math.floor(Date.now() / 1000)
+  return exp <= now + skewSeconds
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
-  const segments = token.split(".");
-  const payloadSegment = segments[1];
+  const segments = token.split('.')
+  const payloadSegment = segments[1]
 
   if (segments.length < 2 || !payloadSegment) {
-    return undefined;
+    return undefined
   }
 
   try {
-    const normalized = payloadSegment
-      .replace(/-/g, "+")
-      .replace(/_/g, "/");
-    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-    const decoded = Buffer.from(padded, "base64").toString("utf8");
-    const payload = JSON.parse(decoded);
+    const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4)
+    const decoded = Buffer.from(padded, 'base64').toString('utf8')
+    const payload = JSON.parse(decoded)
 
-    return payload && typeof payload === "object"
-      ? payload as Record<string, unknown>
-      : undefined;
+    return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : undefined
   } catch {
-    return undefined;
+    return undefined
   }
 }
 
-function flattenHomeDisplaySpaces(
-  response: HomeDisplaySpacesResponse,
-): HomeDisplaySpace[] {
-  return Array.isArray(response.spaces) ? response.spaces : [];
+function flattenHomeDisplaySpaces(response: HomeDisplaySpacesResponse): HomeDisplaySpace[] {
+  return Array.isArray(response.spaces) ? response.spaces : []
 }
 
-function flattenHomeDisplayLives(
-  response: HomeDisplaySpacesResponse,
-): LiveListItem[] {
-  const lives: LiveListItem[] = [];
+function flattenHomeDisplayLives(response: HomeDisplaySpacesResponse): LiveListItem[] {
+  const lives: LiveListItem[] = []
 
   for (const entry of flattenHomeDisplaySpaces(response)) {
     if (entry.live) {
-      lives.push(entry.live);
+      lives.push(entry.live)
     }
 
     if (entry.currentLive) {
-      lives.push(entry.currentLive);
+      lives.push(entry.currentLive)
     }
 
     if (Array.isArray(entry.lives)) {
-      lives.push(...entry.lives);
+      lives.push(...entry.lives)
     }
   }
 
   if (Array.isArray(response.lives)) {
-    lives.push(...response.lives);
+    lives.push(...response.lives)
   }
 
-  return lives;
+  return lives
 }
 
 function parseFirestoreDocument<TFields = Record<string, unknown>>(
   payload: Record<string, unknown>,
 ): FirestoreDocument<TFields> {
-  const name = requiredString(payload, ["name"]);
-  const fields = decodeFirestoreFields(payload.fields) as TFields;
+  const name = requiredString(payload, ['name'])
+  const fields = decodeFirestoreFields(payload.fields) as TFields
 
   return {
     name,
@@ -2774,77 +2649,87 @@ function parseFirestoreDocument<TFields = Record<string, unknown>>(
     updateTime: optionalString(payload.updateTime),
     fields,
     raw: payload,
-  };
+  }
 }
 
 function parseFirestoreDocumentList<TFields = Record<string, unknown>>(
   payload: Record<string, unknown>,
 ): {
-  documents: FirestoreDocument<TFields>[];
-  nextPageToken?: string;
-  raw: Record<string, unknown>;
+  documents: FirestoreDocument<TFields>[]
+  nextPageToken?: string
+  raw: Record<string, unknown>
 } {
   const documents = Array.isArray(payload.documents)
     ? payload.documents
-        .filter((value): value is Record<string, unknown> =>
-          Boolean(value) && typeof value === "object"
+        .filter(
+          (value): value is Record<string, unknown> => Boolean(value) && typeof value === 'object',
         )
         .map((value) => parseFirestoreDocument<TFields>(value))
-    : [];
+    : []
 
   return {
     documents,
     nextPageToken: optionalString(payload.nextPageToken),
     raw: payload,
-  };
+  }
 }
 
 function parseLiveCommentList(payload: Record<string, unknown>): LiveCommentListResult {
-  const parsed = parseFirestoreDocumentList(payload);
+  const parsed = parseFirestoreDocumentList(payload)
 
   return {
     comments: parsed.documents.map((document) => toLiveComment(document)),
     nextPageToken: parsed.nextPageToken,
     raw: parsed.raw,
-  };
+  }
 }
 
 function parseLiveSelectionList(payload: Record<string, unknown>): LiveSelectionListResult {
-  const parsed = parseFirestoreDocumentList(payload);
+  const parsed = parseFirestoreDocumentList(payload)
 
   return {
     selections: parsed.documents.map((document) => toLiveSelection(document)),
     nextPageToken: parsed.nextPageToken,
     raw: parsed.raw,
-  };
+  }
 }
 
 function parseLiveSelectionParticipantList(
   payload: Record<string, unknown>,
 ): LiveSelectionParticipantListResult {
-  const parsed = parseFirestoreDocumentList(payload);
+  const parsed = parseFirestoreDocumentList(payload)
 
   return {
     participants: parsed.documents.map((document) => toLiveSelectionParticipant(document)),
     nextPageToken: parsed.nextPageToken,
     raw: parsed.raw,
-  };
+  }
+}
+
+function parseLiveSelectionSequenceList(
+  payload: Record<string, unknown>,
+): LiveSelectionSequenceListResult {
+  const parsed = parseFirestoreDocumentList(payload)
+
+  return {
+    sequences: parsed.documents.map((document) => toLiveSelectionSequence(document)),
+    nextPageToken: parsed.nextPageToken,
+    raw: parsed.raw,
+  }
 }
 
 function parseSpaceMessageList(payload: Record<string, unknown>): SpaceMessageListResult {
-  const parsed = parseFirestoreDocumentList(payload);
+  const parsed = parseFirestoreDocumentList(payload)
 
   return {
     messages: parsed.documents.map((document) => toSpaceMessage(document)),
     nextPageToken: parsed.nextPageToken,
     raw: parsed.raw,
-  };
+  }
 }
 
-function toLiveComment(
-  document: FirestoreDocument<Record<string, unknown>>,
-): LiveComment {
-  const record = document.fields;
+function toLiveComment(document: FirestoreDocument<Record<string, unknown>>): LiveComment {
+  const record = document.fields
 
   return {
     id: lastPathSegment(document.name),
@@ -2854,22 +2739,21 @@ function toLiveComment(
     createdAt: toFiniteNumber(record.created_at),
     updatedAt: toFiniteNumber(record.updated_at),
     priority: toFiniteNumber(record.priority),
-    user: (record.user && typeof record.user === "object")
-      ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
-      : undefined,
+    user:
+      record.user && typeof record.user === 'object'
+        ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
+        : undefined,
     raw: document,
     ...record,
-  };
+  }
 }
 
-function toLiveSelection(
-  document: FirestoreDocument<Record<string, unknown>>,
-): LiveSelection {
-  const record = document.fields;
+function toLiveSelection(document: FirestoreDocument<Record<string, unknown>>): LiveSelection {
+  const record = document.fields
   const selectionId =
     optionalString(record.selection_id) ??
     optionalString(record.id) ??
-    lastPathSegment(document.name);
+    lastPathSegment(document.name)
 
   return {
     id: selectionId,
@@ -2883,17 +2767,17 @@ function toLiveSelection(
     updatedAt: toFiniteNumber(record.updated_at),
     raw: document,
     ...record,
-  };
+  }
 }
 
 function toLiveSelectionParticipant(
   document: FirestoreDocument<Record<string, unknown>>,
 ): LiveSelectionParticipant {
-  const record = document.fields;
+  const record = document.fields
   const participantId =
     optionalString(record.participant_id) ??
     optionalString(record.id) ??
-    lastPathSegment(document.name);
+    lastPathSegment(document.name)
 
   return {
     id: participantId,
@@ -2902,19 +2786,40 @@ function toLiveSelectionParticipant(
     value: optionalString(record.value),
     selected: optionalBoolean(record.selected),
     displaying: optionalBoolean(record.displaying),
-    user: (record.user && typeof record.user === "object")
-      ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
-      : undefined,
+    user:
+      record.user && typeof record.user === 'object'
+        ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
+        : undefined,
     createdAt: toFiniteNumber(record.created_at),
     updatedAt: toFiniteNumber(record.updated_at),
     raw: document,
     ...record,
-  };
+  }
 }
 
-function normalizeLiveCommentUser(
-  user: Record<string, unknown>,
-): Record<string, unknown> {
+function toLiveSelectionSequence(
+  document: FirestoreDocument<Record<string, unknown>>,
+): LiveSelectionSequence {
+  const record = document.fields
+  const sequenceId =
+    optionalString(record.sequence_id) ??
+    optionalString(record.id) ??
+    lastPathSegment(document.name)
+
+  return {
+    id: sequenceId,
+    sequenceId,
+    documentPath: document.name,
+    kind: optionalString(record.kind),
+    value: asObjectRecord(record.value),
+    createdAt: toFiniteNumber(record.created_at),
+    updatedAt: toFiniteNumber(record.updated_at),
+    raw: document,
+    ...record,
+  }
+}
+
+function normalizeLiveCommentUser(user: Record<string, unknown>): Record<string, unknown> {
   return compactObject({
     ...user,
     id: optionalString(user.id),
@@ -2923,13 +2828,11 @@ function normalizeLiveCommentUser(
     icon: optionalString(user.icon),
     firstNominatedSelectionId: optionalString(user.first_nominated_selection_id),
     onlineSpaceId: optionalString(user.online_space_id),
-  });
+  })
 }
 
-function toSpaceMessage(
-  document: FirestoreDocument<Record<string, unknown>>,
-): SpaceMessage {
-  const record = document.fields;
+function toSpaceMessage(document: FirestoreDocument<Record<string, unknown>>): SpaceMessage {
+  const record = document.fields
 
   return {
     id: lastPathSegment(document.name),
@@ -2938,24 +2841,25 @@ function toSpaceMessage(
     value: optionalString(record.value),
     createdAt: toFiniteNumber(record.created_at),
     updatedAt: toFiniteNumber(record.updated_at),
-    user: (record.user && typeof record.user === "object")
-      ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
-      : undefined,
+    user:
+      record.user && typeof record.user === 'object'
+        ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
+        : undefined,
     raw: document,
     ...record,
-  };
+  }
 }
 
 function toPersonalNotification(
   document: FirestoreDocument<Record<string, unknown>>,
 ): PersonalNotificationData {
-  const record = document.fields;
-  const source = asObjectRecord(record.source);
-  const deliveryContent = asObjectRecord(record.delivery_content);
+  const record = document.fields
+  const source = asObjectRecord(record.source)
+  const deliveryContent = asObjectRecord(record.delivery_content)
   const id =
     optionalString(record.personal_notification_id) ??
     optionalString(record.notification_id) ??
-    lastPathSegment(document.name);
+    lastPathSegment(document.name)
 
   return {
     ...record,
@@ -2974,7 +2878,8 @@ function toPersonalNotification(
     unreadAt: toNotificationTemporalValue(record.unread_at),
     readAt: toNotificationTemporalValue(record.read_at),
     deliveredAt: toNotificationTemporalValue(record.delivered_at),
-    receivedAt: toNotificationTemporalValue(record.received_at) ??
+    receivedAt:
+      toNotificationTemporalValue(record.received_at) ??
       toNotificationTemporalValue(deliveryContent?.received_at),
     scheduledDeliveryAt: toNotificationTemporalValue(record.scheduled_delivery_at),
     imageUrl: optionalString(record.imageUrl) ?? optionalString(record.image_url),
@@ -2982,38 +2887,38 @@ function toPersonalNotification(
     transitionUrl: optionalString(record.transitionUrl) ?? optionalString(record.transition_url),
     source: source
       ? {
-        ...source,
-        kind: optionalString(source.kind),
-        welcomeDeliveryMasterId:
-          optionalString(source.welcomeDeliveryMasterId) ??
-          optionalString(source.welcome_delivery_master_id),
-        bulkDeliveryMasterId:
-          optionalString(source.bulkDeliveryMasterId) ??
-          optionalString(source.bulk_delivery_master_id),
-        subscriptionItemGrantMasterId:
-          optionalString(source.subscriptionItemGrantMasterId) ??
-          optionalString(source.subscription_item_grant_master_id),
-      }
+          ...source,
+          kind: optionalString(source.kind),
+          welcomeDeliveryMasterId:
+            optionalString(source.welcomeDeliveryMasterId) ??
+            optionalString(source.welcome_delivery_master_id),
+          bulkDeliveryMasterId:
+            optionalString(source.bulkDeliveryMasterId) ??
+            optionalString(source.bulk_delivery_master_id),
+          subscriptionItemGrantMasterId:
+            optionalString(source.subscriptionItemGrantMasterId) ??
+            optionalString(source.subscription_item_grant_master_id),
+        }
       : undefined,
     deliveryContent: deliveryContent
       ? {
-        ...deliveryContent,
-        expireAt: toNotificationTemporalValue(deliveryContent.expire_at),
-        receivedAt: toNotificationTemporalValue(deliveryContent.received_at),
-      }
+          ...deliveryContent,
+          expireAt: toNotificationTemporalValue(deliveryContent.expire_at),
+          receivedAt: toNotificationTemporalValue(deliveryContent.received_at),
+        }
       : undefined,
-  };
+  }
 }
 
 function toSystemNotification(
   document: FirestoreDocument<Record<string, unknown>>,
 ): SystemNotificationData {
-  const record = document.fields;
+  const record = document.fields
   const id =
     optionalString(record.system_notification_id) ??
     optionalString(record.notification_id) ??
-    lastPathSegment(document.name);
-  const displayPeriod = asObjectRecord(record.display_period);
+    lastPathSegment(document.name)
+  const displayPeriod = asObjectRecord(record.display_period)
 
   return {
     ...record,
@@ -3032,556 +2937,500 @@ function toSystemNotification(
     hasSeenLaunchPopup: optionalBoolean(record.has_seen_launch_popup),
     imageUrl: optionalString(record.imageUrl) ?? optionalString(record.image_url),
     transitionUrl: optionalString(record.transitionUrl) ?? optionalString(record.transition_url),
-  };
+  }
 }
 
-function isPublicActiveSystemNotification(
-  notification: SystemNotificationData,
-): boolean {
-  const displayPeriodState = asObjectRecord(notification.display_period_state);
-  return notification.status === "public" &&
-    optionalBoolean(displayPeriodState?.active) === true;
+function isPublicActiveSystemNotification(notification: SystemNotificationData): boolean {
+  const displayPeriodState = asObjectRecord(notification.display_period_state)
+  return notification.status === 'public' && optionalBoolean(displayPeriodState?.active) === true
+}
+
+function isPersonalNotificationReceived(notification: PersonalNotificationData): boolean {
+  return notification.receivedAt !== undefined && notification.receivedAt !== null
 }
 
 function getNotificationUserId(query?: RequestQuery): string | undefined {
-  return getRequestQueryString(query, "userId") ??
-    getRequestQueryString(query, "user-id");
+  return getRequestQueryString(query, 'userId') ?? getRequestQueryString(query, 'user-id')
 }
 
 function getNotificationFilterKind(query?: RequestQuery): string | undefined {
-  return getRequestQueryString(query, "kind");
+  return getRequestQueryString(query, 'kind')
 }
 
 function getNotificationPageSize(query?: RequestQuery): number {
-  const value = getRequestQueryString(query, "pageSize") ??
-    getRequestQueryString(query, "limit");
-  const parsed = value === undefined ? NaN : Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20;
+  const value = getRequestQueryString(query, 'pageSize') ?? getRequestQueryString(query, 'limit')
+  const parsed = value === undefined ? NaN : Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 20
 }
 
 function getNotificationPageToken(query?: RequestQuery): string | undefined {
-  return getRequestQueryString(query, "pageToken") ??
-    getRequestQueryString(query, "page-token");
+  return getRequestQueryString(query, 'pageToken') ?? getRequestQueryString(query, 'page-token')
 }
 
-function getNotificationOrderBy(
-  query: RequestQuery | undefined,
-  fallback: string,
-): string {
-  return getRequestQueryString(query, "orderBy") ??
-    getRequestQueryString(query, "order-by") ??
-    fallback;
+function getNotificationOrderBy(query: RequestQuery | undefined, fallback: string): string {
+  return (
+    getRequestQueryString(query, 'orderBy') ?? getRequestQueryString(query, 'order-by') ?? fallback
+  )
 }
 
-function getRequestQueryString(
-  query: RequestQuery | undefined,
-  key: string,
-): string | undefined {
+function getRequestQueryString(query: RequestQuery | undefined, key: string): string | undefined {
   if (!query) {
-    return undefined;
+    return undefined
   }
 
-  const value = query[key];
+  const value = query[key]
 
   if (Array.isArray(value)) {
-    const first = value[0];
-    return first === null || first === undefined ? undefined : String(first);
+    const first = value[0]
+    return first === null || first === undefined ? undefined : String(first)
   }
 
-  return value === null || value === undefined ? undefined : String(value);
+  return value === null || value === undefined ? undefined : String(value)
 }
 
 function isIgnorableConnectionInfoError(error: unknown): error is PopopoApiError {
-  return error instanceof PopopoApiError &&
-    (error.status === 401 || error.status === 403);
+  return error instanceof PopopoApiError && (error.status === 401 || error.status === 403)
 }
 
 async function resolveLiveContext(
   runtime: ClientRuntime,
   input: {
-    spaceKey?: string;
-    liveId?: string;
-    request?: HomeDisplaySpacesRequest;
-    query?: RequestQuery;
+    spaceKey?: string
+    liveId?: string
+    request?: HomeDisplaySpacesRequest
+    query?: RequestQuery
   },
 ): Promise<{ spaceKey: string; liveId: string }> {
-  const session = runtime.http.getSession();
-  const sessionSpaceKey = session.currentSpaceKey;
-  const spaceKey = input.spaceKey ?? sessionSpaceKey;
-  const liveId = input.liveId ??
+  const session = runtime.http.getSession()
+  const sessionSpaceKey = session.currentSpaceKey
+  const spaceKey = input.spaceKey ?? sessionSpaceKey
+  const liveId =
+    input.liveId ??
     (spaceKey && sessionSpaceKey && spaceKey === sessionSpaceKey
       ? session.currentLiveId
-      : undefined);
+      : undefined)
 
   if (spaceKey && liveId) {
-    return { spaceKey, liveId };
+    return { spaceKey, liveId }
   }
 
   if (!spaceKey) {
     throw new PopopoConfigurationError(
-      "No live context is available. Pass --space-key/--live-id or run `uset lives enter` first.",
-    );
+      'No live context is available. Pass --space-key/--live-id or run `uset lives enter` first.',
+    )
   }
 
-  const lives = new LivesClient(runtime);
-  const current = await lives.getCurrentBySpaceKey(
-    spaceKey,
-    input.request,
-    input.query,
-  );
-  const currentLiveId = current?.liveId ?? current?.id;
+  const lives = new LivesClient(runtime)
+  const current = await lives.getCurrentBySpaceKey(spaceKey, input.request, input.query)
+  const currentLiveId = current?.liveId ?? current?.id
 
   if (!currentLiveId) {
-    throw new PopopoConfigurationError(
-      `No current live was found for space ${spaceKey}.`,
-    );
+    throw new PopopoConfigurationError(`No current live was found for space ${spaceKey}.`)
   }
 
   runtime.http.setSession({
     currentSpaceKey: spaceKey,
     currentLiveId,
-  });
+  })
 
   return {
     spaceKey,
     liveId: currentLiveId,
-  };
+  }
 }
 
 function lastPathSegment(path: string): string {
-  const segments = path.split("/");
-  return segments[segments.length - 1] ?? path;
+  const segments = path.split('/')
+  return segments[segments.length - 1] ?? path
 }
 
 function asObjectRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object"
-    ? value as Record<string, unknown>
-    : undefined;
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
 }
 
-function toNotificationTemporalValue(
-  value: unknown,
-): string | number | null | undefined {
+function toNotificationTemporalValue(value: unknown): string | number | null | undefined {
   if (value === null) {
-    return null;
+    return null
   }
 
-  return toFiniteNumber(value) ?? optionalString(value);
+  return toFiniteNumber(value) ?? optionalString(value)
 }
 
 function extractNotificationBody(value: unknown): string | undefined {
-  const content = asObjectRecord(value);
-  const ops = Array.isArray(content?.ops) ? content.ops : undefined;
+  const content = asObjectRecord(value)
+  const ops = Array.isArray(content?.ops) ? content.ops : undefined
 
   if (!ops) {
-    return undefined;
+    return undefined
   }
 
   const text = ops
     .map((entry) =>
-      entry && typeof entry === "object"
+      entry && typeof entry === 'object'
         ? optionalString((entry as Record<string, unknown>).insert)
-        : undefined
+        : undefined,
     )
     .filter((entry): entry is string => Boolean(entry))
-    .join("");
+    .join('')
 
-  return text || undefined;
+  return text || undefined
 }
 
 function decodeFirestoreFields(fields: unknown): Record<string, unknown> {
-  if (!fields || typeof fields !== "object") {
-    return {};
+  if (!fields || typeof fields !== 'object') {
+    return {}
   }
 
-  const decoded: Record<string, unknown> = {};
+  const decoded: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(fields as Record<string, unknown>)) {
-    decoded[key] = decodeFirestoreValue(value);
+    decoded[key] = decodeFirestoreValue(value)
   }
 
-  return decoded;
+  return decoded
 }
 
 function decodeFirestoreValue(value: unknown): unknown {
-  if (!value || typeof value !== "object") {
-    return value;
+  if (!value || typeof value !== 'object') {
+    return value
   }
 
-  const record = value as Record<string, unknown>;
+  const record = value as Record<string, unknown>
 
-  if ("nullValue" in record) {
-    return null;
+  if ('nullValue' in record) {
+    return null
   }
 
-  if ("booleanValue" in record) {
-    return record.booleanValue;
+  if ('booleanValue' in record) {
+    return record.booleanValue
   }
 
-  if ("stringValue" in record) {
-    return record.stringValue;
+  if ('stringValue' in record) {
+    return record.stringValue
   }
 
-  if ("timestampValue" in record) {
-    return record.timestampValue;
+  if ('timestampValue' in record) {
+    return record.timestampValue
   }
 
-  if ("referenceValue" in record) {
-    return record.referenceValue;
+  if ('referenceValue' in record) {
+    return record.referenceValue
   }
 
-  if ("bytesValue" in record) {
-    return record.bytesValue;
+  if ('bytesValue' in record) {
+    return record.bytesValue
   }
 
-  if ("integerValue" in record) {
-    return toFirestoreNumber(record.integerValue);
+  if ('integerValue' in record) {
+    return toFirestoreNumber(record.integerValue)
   }
 
-  if ("doubleValue" in record) {
-    return toFirestoreNumber(record.doubleValue);
+  if ('doubleValue' in record) {
+    return toFirestoreNumber(record.doubleValue)
   }
 
-  if ("geoPointValue" in record && typeof record.geoPointValue === "object") {
-    return { ...(record.geoPointValue as Record<string, unknown>) };
+  if ('geoPointValue' in record && typeof record.geoPointValue === 'object') {
+    return { ...(record.geoPointValue as Record<string, unknown>) }
   }
 
-  if ("arrayValue" in record) {
-    const values = (record.arrayValue as Record<string, unknown>)?.values;
+  if ('arrayValue' in record) {
+    const values = (record.arrayValue as Record<string, unknown>)?.values
 
     if (!Array.isArray(values)) {
-      return [];
+      return []
     }
 
-    return values.map((item) => decodeFirestoreValue(item));
+    return values.map((item) => decodeFirestoreValue(item))
   }
 
-  if ("mapValue" in record) {
-    return decodeFirestoreFields((record.mapValue as Record<string, unknown>)?.fields);
+  if ('mapValue' in record) {
+    return decodeFirestoreFields((record.mapValue as Record<string, unknown>)?.fields)
   }
 
-  return record;
+  return record
 }
 
 function toFirestoreNumber(value: unknown): number | string | undefined {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined
   }
 
-  if (typeof value !== "string" || value.length === 0) {
-    return undefined;
+  if (typeof value !== 'string' || value.length === 0) {
+    return undefined
   }
 
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : value;
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : value
 }
 
-function decodeTencentCompactToken(
-  value: string | undefined,
-): TencentTlsCompactToken | undefined {
+function decodeTencentCompactToken(value: string | undefined): TencentTlsCompactToken | undefined {
   if (!value) {
-    return undefined;
+    return undefined
   }
 
   try {
-    const normalized = normalizeTencentCompactBase64(value);
-    const decoded = inflateSync(Buffer.from(normalized, "base64")).toString("utf8");
-    const parsed = JSON.parse(decoded);
+    const normalized = normalizeTencentCompactBase64(value)
+    const decoded = inflateSync(Buffer.from(normalized, 'base64')).toString('utf8')
+    const parsed = JSON.parse(decoded)
 
-    return parsed && typeof parsed === "object"
-      ? parsed as TencentTlsCompactToken
-      : undefined;
+    return parsed && typeof parsed === 'object' ? (parsed as TencentTlsCompactToken) : undefined
   } catch {
-    return undefined;
+    return undefined
   }
 }
 
 function normalizeTencentCompactBase64(value: string): string {
-  const normalized = value
-    .replace(/\*/g, "+")
-    .replace(/-/g, "/")
-    .replace(/_/g, "=");
-  const remainder = normalized.length % 4;
+  const normalized = value.replace(/\*/g, '+').replace(/-/g, '/').replace(/_/g, '=')
+  const remainder = normalized.length % 4
 
-  return remainder === 0
-    ? normalized
-    : normalized + "=".repeat(4 - remainder);
+  return remainder === 0 ? normalized : normalized + '='.repeat(4 - remainder)
 }
 
 function extractInviteKey(input: string): string {
-  const trimmed = input.trim();
+  const trimmed = input.trim()
 
   if (!trimmed) {
-    throw new PopopoConfigurationError("Invite key is empty.");
+    throw new PopopoConfigurationError('Invite key is empty.')
   }
 
   if (!/^[a-z]+:\/\//i.test(trimmed)) {
-    return trimmed;
+    return trimmed
   }
 
   try {
-    const url = new URL(trimmed);
-    const match = url.pathname.match(/\/invites\/([^/]+)/i);
+    const url = new URL(trimmed)
+    const match = url.pathname.match(/\/invites\/([^/]+)/i)
 
     if (!match?.[1]) {
-      throw new PopopoConfigurationError(`Unable to extract invite key from URL: ${trimmed}`);
+      throw new PopopoConfigurationError(`Unable to extract invite key from URL: ${trimmed}`)
     }
 
-    return decodeURIComponent(match[1]);
+    return decodeURIComponent(match[1])
   } catch (error) {
     if (error instanceof PopopoConfigurationError) {
-      throw error;
+      throw error
     }
 
-    throw new PopopoConfigurationError(`Invalid invite URL: ${trimmed}`);
+    throw new PopopoConfigurationError(`Invalid invite URL: ${trimmed}`)
   }
 }
 
 function buildTencentTrtcPlayUrl(input: {
-  sdkAppId: number;
-  userId: string;
-  userSig: string;
-  streamName: string;
+  sdkAppId: number
+  userId: string
+  userSig: string
+  streamName: string
 }): string {
   const query = new URLSearchParams({
     sdkappid: String(input.sdkAppId),
     userId: input.userId,
     usersig: input.userSig,
     appscene: DEFAULT_TENCENT_TRTC_PLAY_APP_SCENE,
-  });
+  })
 
-  return `trtc://${DEFAULT_TENCENT_TRTC_PLAY_HOST}/play/${encodeURIComponent(input.streamName)}?${query.toString()}`;
+  return `trtc://${DEFAULT_TENCENT_TRTC_PLAY_HOST}/play/${encodeURIComponent(input.streamName)}?${query.toString()}`
 }
 
-function buildTencentLivePlaybackUrl(
-  streamName: string,
-  extension: "flv" | "m3u8",
-): string {
-  return `https://${DEFAULT_TENCENT_LIVE_PLAY_HOST}/${DEFAULT_TENCENT_LIVE_PLAY_PATH}/${encodeURIComponent(streamName)}.${extension}`;
+function buildTencentLivePlaybackUrl(streamName: string, extension: 'flv' | 'm3u8'): string {
+  return `https://${DEFAULT_TENCENT_LIVE_PLAY_HOST}/${DEFAULT_TENCENT_LIVE_PLAY_PATH}/${encodeURIComponent(streamName)}.${extension}`
 }
 
 function buildTencentLiveRtmpUrl(streamName: string): string {
-  return `rtmp://${DEFAULT_TENCENT_LIVE_PLAY_HOST}/${DEFAULT_TENCENT_LIVE_PLAY_PATH}/${encodeURIComponent(streamName)}`;
+  return `rtmp://${DEFAULT_TENCENT_LIVE_PLAY_HOST}/${DEFAULT_TENCENT_LIVE_PLAY_PATH}/${encodeURIComponent(streamName)}`
 }
 
 function normalizeCoinBalances(value: unknown): Record<string, number> {
-  const balances: Record<string, number> = {};
+  const balances: Record<string, number> = {}
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      if (!item || typeof item !== "object") {
-        continue;
+      if (!item || typeof item !== 'object') {
+        continue
       }
 
-      const record = item as Record<string, unknown>;
+      const record = item as Record<string, unknown>
       const rawName =
-        record.scope ??
-        record.kind ??
-        record.type ??
-        record.name ??
-        record.label ??
-        record.id;
+        record.scope ?? record.kind ?? record.type ?? record.name ?? record.label ?? record.id
       const amount =
         toFiniteNumber(record.balance) ??
         toFiniteNumber(record.amount) ??
         toFiniteNumber(record.coin) ??
         toFiniteNumber(record.coins) ??
-        toFiniteNumber(record.value);
+        toFiniteNumber(record.value)
 
-      if (typeof rawName === "string" && amount !== undefined) {
-        balances[rawName] = amount;
+      if (typeof rawName === 'string' && amount !== undefined) {
+        balances[rawName] = amount
       }
     }
 
-    return balances;
+    return balances
   }
 
-  if (!value || typeof value !== "object") {
-    return balances;
+  if (!value || typeof value !== 'object') {
+    return balances
   }
 
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     const amount =
       toFiniteNumber(entry) ??
-      (entry && typeof entry === "object"
-        ? toFiniteNumber((entry as Record<string, unknown>).balance) ??
+      (entry && typeof entry === 'object'
+        ? (toFiniteNumber((entry as Record<string, unknown>).balance) ??
           toFiniteNumber((entry as Record<string, unknown>).amount) ??
-          toFiniteNumber((entry as Record<string, unknown>).value)
-        : undefined);
+          toFiniteNumber((entry as Record<string, unknown>).value))
+        : undefined)
 
     if (amount !== undefined) {
-      balances[key] = amount;
+      balances[key] = amount
     }
   }
 
-  return balances;
+  return balances
 }
 
-function pickNamedCoinBalance(
-  balances: Record<string, number>,
-  token: string,
-): number | undefined {
-  const lowered = token.toLowerCase();
+function pickNamedCoinBalance(balances: Record<string, number>, token: string): number | undefined {
+  const lowered = token.toLowerCase()
 
   for (const [key, value] of Object.entries(balances)) {
     if (key.toLowerCase().includes(lowered)) {
-      return value;
+      return value
     }
   }
 
-  return undefined;
+  return undefined
 }
 
 function toFiniteNumber(value: unknown): number | undefined {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined
   }
 
-  if (typeof value === "string" && value.length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
+  if (typeof value === 'string' && value.length > 0) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : undefined
   }
 
-  return undefined;
+  return undefined
 }
 
 function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 function optionalBoolean(value: unknown): boolean | undefined {
-  return typeof value === "boolean" ? value : undefined;
+  return typeof value === 'boolean' ? value : undefined
 }
 
 function requireTsoFileApiBaseUrl(config: TsoClientConfig): string {
   if (!config.fileApiBaseUrl) {
     throw new PopopoConfigurationError(
-      "TSO file API base URL is not configured. Set `tso.fileApiBaseUrl` first.",
-    );
+      'TSO file API base URL is not configured. Set `tso.fileApiBaseUrl` first.',
+    )
   }
 
-  return config.fileApiBaseUrl;
+  return config.fileApiBaseUrl
 }
 
-function requiredString(
-  payload: Record<string, unknown>,
-  keys: string[],
-): string {
+function requiredString(payload: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
-    const value = payload[key];
+    const value = payload[key]
 
-    if (typeof value === "string" && value.length > 0) {
-      return value;
+    if (typeof value === 'string' && value.length > 0) {
+      return value
     }
   }
 
   throw new PopopoConfigurationError(
-    `Response payload does not contain a required string field: ${keys.join(", ")}`,
-  );
+    `Response payload does not contain a required string field: ${keys.join(', ')}`,
+  )
 }
 
-function requiredNumber(
-  payload: Record<string, unknown>,
-  keys: string[],
-): number {
+function requiredNumber(payload: Record<string, unknown>, keys: string[]): number {
   for (const key of keys) {
-    const value = payload[key];
+    const value = payload[key]
 
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
     }
 
-    if (typeof value === "string" && value.trim() !== "") {
-      const parsed = Number(value);
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value)
 
       if (Number.isFinite(parsed)) {
-        return parsed;
+        return parsed
       }
     }
   }
 
   throw new PopopoConfigurationError(
-    `Response payload does not contain a required numeric field: ${keys.join(", ")}`,
-  );
+    `Response payload does not contain a required numeric field: ${keys.join(', ')}`,
+  )
 }
 
-function optionalNumber(
-  payload: Record<string, unknown>,
-  keys: string[],
-): number | undefined {
+function optionalNumber(payload: Record<string, unknown>, keys: string[]): number | undefined {
   for (const key of keys) {
-    const value = payload[key];
+    const value = payload[key]
 
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
     }
 
-    if (typeof value === "string" && value.trim() !== "") {
-      const parsed = Number(value);
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value)
 
       if (Number.isFinite(parsed)) {
-        return parsed;
+        return parsed
       }
     }
   }
 
-  return undefined;
+  return undefined
 }
 
-function maybeToFirebaseSession(
-  payload: Record<string, unknown>,
-): FirebaseAuthSession | undefined {
-  const hasIdToken = typeof payload.idToken === "string" || typeof payload.id_token === "string";
+function maybeToFirebaseSession(payload: Record<string, unknown>): FirebaseAuthSession | undefined {
+  const hasIdToken = typeof payload.idToken === 'string' || typeof payload.id_token === 'string'
   const hasRefreshToken =
-    typeof payload.refreshToken === "string" || typeof payload.refresh_token === "string";
-  const hasLocalId = typeof payload.localId === "string" || typeof payload.user_id === "string";
+    typeof payload.refreshToken === 'string' || typeof payload.refresh_token === 'string'
+  const hasLocalId = typeof payload.localId === 'string' || typeof payload.user_id === 'string'
 
   if (!hasIdToken || !hasRefreshToken || !hasLocalId) {
-    return undefined;
+    return undefined
   }
 
-  return toFirebaseSession(payload);
+  return toFirebaseSession(payload)
 }
 
 function asOptionalString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
+  return typeof value === 'string' ? value : undefined
 }
 
-function requireDefined<T>(
-  value: T | undefined,
-  field: string,
-): T {
-  if (value === undefined || value === null || value === "") {
-    throw new PopopoConfigurationError(`Missing required credential field: ${field}`);
+function requireDefined<T>(value: T | undefined, field: string): T {
+  if (value === undefined || value === null || value === '') {
+    throw new PopopoConfigurationError(`Missing required credential field: ${field}`)
   }
 
-  return value;
+  return value
 }
 
-function compactObject(
-  record: Record<string, unknown>,
-): Record<string, unknown> {
-  const next: Record<string, unknown> = {};
+function compactObject(record: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(record)) {
     if (value !== undefined) {
-      next[key] = value;
+      next[key] = value
     }
   }
 
-  return next;
+  return next
 }
 
-function compactStringRecord(
-  record: Record<string, string | undefined>,
-): Record<string, string> {
-  const next: Record<string, string> = {};
+function compactStringRecord(record: Record<string, string | undefined>): Record<string, string> {
+  const next: Record<string, string> = {}
 
   for (const [key, value] of Object.entries(record)) {
     if (value !== undefined) {
-      next[key] = value;
+      next[key] = value
     }
   }
 
-  return next;
+  return next
 }

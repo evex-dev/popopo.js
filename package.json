@@ -1,18 +1,29 @@
 {
-  "name": "client_lib",
-  "module": "index.ts",
-  "exports": "./index.ts",
+  "name": "popopo.js",
+  "version": "0.1.0",
   "bin": {
-    "uset": "./cli/index.ts"
+    "popopo": "./dist/index.js"
   },
   "type": "module",
-  "private": true,
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/evex-dev/popopo.js"
+  },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "build": "vp pack"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "vite-plus": "^0.1.12"
   },
   "peerDependencies": {
     "typescript": "^5"
