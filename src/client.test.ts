@@ -351,6 +351,320 @@ describe("LivesClient", () => {
     });
   });
 
+  test("creates a live selection through the backend selections endpoint", async () => {
+    let seenUrl = "";
+    let seenAuthorization = "";
+    let seenBody = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+        seenBody = String(init?.body ?? "");
+
+        return new Response(JSON.stringify({ id: "selection-123" }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        });
+      },
+      session: {
+        bearerToken: "backend-token",
+        currentSpaceKey: "space-123",
+        currentLiveId: "live-456",
+      },
+    });
+
+    const result = await client.lives.createSelection({
+      body: {
+        kind: "message",
+        title: "question box",
+      },
+    });
+
+    expect(seenUrl).toBe(
+      "https://api.popopo.com/api/v2/spaces/space-123/lives/live-456/selections",
+    );
+    expect(seenAuthorization).toBe("Bearer backend-token");
+    expect(seenBody).toBe(JSON.stringify({ kind: "message", title: "question box" }));
+    expect(result).toEqual({ id: "selection-123" });
+  });
+
+  test("reads live selections from the Firestore selections collection", async () => {
+    let seenUrl = "";
+    let seenAuthorization = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                name:
+                  "projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-789",
+                fields: {
+                  id: { stringValue: "selection-789" },
+                  kind: { stringValue: "message" },
+                  title: { stringValue: "letters" },
+                  status: { stringValue: "published" },
+                  participants: {
+                    arrayValue: {
+                      values: [
+                        { stringValue: "user-1" },
+                        { stringValue: "user-2" },
+                      ],
+                    },
+                  },
+                  created_at: { integerValue: "123" },
+                },
+              },
+            ],
+            nextPageToken: "next-page",
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      },
+      session: {
+        firebaseIdToken: "firebase-token",
+        currentSpaceKey: "space-123",
+        currentLiveId: "live-456",
+      },
+      firebase: {
+        apiKey: "api-key",
+        projectId: "popopo-prod",
+      },
+    });
+
+    const result = await client.lives.listSelections({
+      options: {
+        limit: 10,
+        orderBy: "created_at desc",
+      },
+    });
+
+    expect(seenUrl).toBe(
+      "https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections?key=api-key&pageSize=10&orderBy=created_at+desc",
+    );
+    expect(seenAuthorization).toBe("Bearer firebase-token");
+    expect(result.nextPageToken).toBe("next-page");
+    expect(result.selections).toEqual([
+      expect.objectContaining({
+        id: "selection-789",
+        selectionId: "selection-789",
+        kind: "message",
+        title: "letters",
+        status: "published",
+        participants: ["user-1", "user-2"],
+        createdAt: 123,
+      }),
+    ]);
+  });
+
+  test("reads a single live selection document from Firestore", async () => {
+    let seenUrl = "";
+    let seenAuthorization = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+
+        return new Response(
+          JSON.stringify({
+            name:
+              "projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-999",
+            fields: {
+              kind: { stringValue: "talk" },
+              title: { stringValue: "talk theme" },
+              status: { stringValue: "published" },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      },
+      session: {
+        firebaseIdToken: "firebase-token",
+        currentSpaceKey: "space-123",
+        currentLiveId: "live-456",
+      },
+      firebase: {
+        apiKey: "api-key",
+        projectId: "popopo-prod",
+      },
+    });
+
+    const result = await client.lives.getSelection({
+      selectionId: "selection-999",
+    });
+
+    expect(seenUrl).toBe(
+      "https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-999?key=api-key",
+    );
+    expect(seenAuthorization).toBe("Bearer firebase-token");
+    expect(result).toMatchObject({
+      id: "selection-999",
+      selectionId: "selection-999",
+      kind: "talk",
+      title: "talk theme",
+      status: "published",
+    });
+  });
+
+  test("reads selection participants from the Firestore participants collection", async () => {
+    let seenUrl = "";
+    let seenAuthorization = "";
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input);
+        seenAuthorization = new Headers(init?.headers).get("authorization") ?? "";
+
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                name:
+                  "projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-999/participants/participant-1",
+                fields: {
+                  value: { stringValue: "hello answer" },
+                  selected: { booleanValue: true },
+                  created_at: { integerValue: "1234" },
+                  user: {
+                    mapValue: {
+                      fields: {
+                        id: { stringValue: "user-1" },
+                        name: { stringValue: "alice" },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      },
+      session: {
+        firebaseIdToken: "firebase-token",
+        currentSpaceKey: "space-123",
+        currentLiveId: "live-456",
+      },
+      firebase: {
+        apiKey: "api-key",
+        projectId: "popopo-prod",
+      },
+    });
+
+    const result = await client.lives.listSelectionParticipants({
+      selectionId: "selection-999",
+      options: {
+        limit: 20,
+        orderBy: "created_at desc",
+      },
+    });
+
+    expect(seenUrl).toBe(
+      "https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/selections/selection-999/participants?key=api-key&pageSize=20&orderBy=created_at+desc",
+    );
+    expect(seenAuthorization).toBe("Bearer firebase-token");
+    expect(result.participants).toEqual([
+      expect.objectContaining({
+        id: "participant-1",
+        participantId: "participant-1",
+        value: "hello answer",
+        selected: true,
+        createdAt: 1234,
+        user: {
+          id: "user-1",
+          name: "alice",
+        },
+      }),
+    ]);
+  });
+
+  test("starts selection pseudo-nominate and nominate sequence actions", async () => {
+    const calls: Array<{ url: string; method: string; body: string }> = [];
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        calls.push({
+          url: String(input),
+          method: init?.method ?? "GET",
+          body: String(init?.body ?? ""),
+        });
+
+        return new Response(JSON.stringify({ sequenceId: "sequence-next" }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        });
+      },
+      session: {
+        bearerToken: "backend-token",
+        currentSpaceKey: "space-123",
+        currentLiveId: "live-456",
+      },
+    });
+
+    const pseudoNominate = await client.lives.startSelectionPseudoNominate({
+      selectionId: "selection-321",
+      count: 2,
+      sequenceId: "sequence-001",
+    });
+    const nominate = await client.lives.startSelectionDraw({
+      selectionId: "selection-321",
+      count: 2,
+      sequenceId: "sequence-001",
+    });
+
+    expect(calls).toEqual([
+      {
+        url:
+          "https://api.popopo.com/api/v2/spaces/space-123/lives/live-456/selections/selection-321/sequences/pseudo-nominate",
+        method: "POST",
+        body: JSON.stringify({
+          count: 2,
+          sequence: {
+            id: "sequence-001",
+          },
+        }),
+      },
+      {
+        url:
+          "https://api.popopo.com/api/v2/spaces/space-123/lives/live-456/selections/selection-321/sequences/nominate",
+        method: "POST",
+        body: JSON.stringify({
+          count: 2,
+          sequence: {
+            id: "sequence-001",
+          },
+        }),
+      },
+    ]);
+    expect(pseudoNominate).toEqual({ sequenceId: "sequence-next" });
+    expect(nominate).toEqual({ sequenceId: "sequence-next" });
+  });
+
   test("collects receive info from Firestore and decodes Tencent compact tokens", async () => {
     const userSig =
       "eJw1zUEOgjAUBNC7-LUhbQkUmrhAd0AkilG21Bb5IqQiImK8uxF1*2Yy84RtnFqodNNhgboFAVFfGfdcLR9JKQt-hWF4V3snOykjGcym-lVVuTGoQAAjhLmU01-SYa1BUM5tjzmUeF-Vg8H24x75Qj89MYv8B-EIAhbcN2njB02UHXbIPCkz2QejKXO6ubhquI0qUU4do72ew*sN8G04ow__";
@@ -545,6 +859,104 @@ describe("NotificationsClient", () => {
     ]);
   });
 
+  test("refreshes an expired Firebase token before reading Firestore notifications", async () => {
+    const calls: string[] = [];
+    const seenAuthorizations: string[] = [];
+    const expiredToken = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "eyJleHAiOjF9",
+      "sig",
+    ].join(".");
+    const freshToken = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "eyJleHAiOjk5OTk5OTk5OTksInVzZXJfaWQiOiJ1c2VyLXJlZnJlc2hlZCJ9",
+      "sig",
+    ].join(".");
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push(url);
+        seenAuthorizations.push(new Headers(init?.headers).get("authorization") ?? "");
+
+        if (url.startsWith("https://securetoken.googleapis.com/v1/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-token",
+              id_token: freshToken,
+              refresh_token: "refresh-2",
+              user_id: "user-refreshed",
+              expires_in: "3600",
+              token_type: "Bearer",
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            },
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                name:
+                  "projects/popopo-prod/databases/(default)/documents/system-notifications/sn-refreshed",
+                fields: {
+                  title: { stringValue: "refreshed title" },
+                  status: { stringValue: "public" },
+                  display_period_state: {
+                    mapValue: {
+                      fields: {
+                        active: { booleanValue: true },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      },
+      session: {
+        firebaseIdToken: expiredToken,
+        refreshToken: "refresh-1",
+      },
+      firebase: {
+        apiKey: "api-key",
+        projectId: "popopo-prod",
+      },
+    });
+
+    const result = await client.notifications.list();
+
+    expect(calls).toEqual([
+      "https://securetoken.googleapis.com/v1/token?key=api-key",
+      "https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/system-notifications?key=api-key&pageSize=20&orderBy=display_period.start_at+desc",
+    ]);
+    expect(seenAuthorizations).toEqual(["", `Bearer ${freshToken}`]);
+    expect(client.getSession()).toMatchObject({
+      firebaseIdToken: freshToken,
+      bearerToken: freshToken,
+      refreshToken: "refresh-2",
+      userId: "user-refreshed",
+    });
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: "sn-refreshed",
+        title: "refreshed title",
+      }),
+    ]);
+  });
+
   test("reads personal notifications from the user Firestore collection", async () => {
     let seenUrl = "";
     let seenAuthorization = "";
@@ -667,6 +1079,94 @@ describe("NotificationsClient", () => {
     });
   });
 
+  test("parses present notifications from Firestore content and delivery metadata", async () => {
+    const client = new PopopoClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            name:
+              "projects/popopo-prod/databases/(default)/documents/users/user-123/personal-notifications/pn-present",
+            fields: {
+              title: { stringValue: "リリース記念プレゼント（1000コイン）" },
+              kind: { stringValue: "present" },
+              icon: { stringValue: "present" },
+              is_read: { booleanValue: false },
+              content: {
+                mapValue: {
+                  fields: {
+                    ops: {
+                      arrayValue: {
+                        values: [
+                          {
+                            mapValue: {
+                              fields: {
+                                insert: { stringValue: "1000コインをプレゼント" },
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+              delivery_content: {
+                mapValue: {
+                  fields: {
+                    expire_at: { integerValue: "1777561140000" },
+                    received_at: { integerValue: "1773833090511" },
+                  },
+                },
+              },
+              source: {
+                mapValue: {
+                  fields: {
+                    kind: { stringValue: "welcome_delivery" },
+                    welcome_delivery_master_id: { stringValue: "welcome-123" },
+                  },
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      session: {
+        userId: "user-123",
+        firebaseIdToken: "firebase-token",
+      },
+      firebase: {
+        apiKey: "api-key",
+        projectId: "popopo-prod",
+      },
+    });
+
+    const result = await client.notifications.getPersonalById("pn-present");
+
+    expect(result).toMatchObject({
+      id: "pn-present",
+      personalNotificationId: "pn-present",
+      title: "リリース記念プレゼント（1000コイン）",
+      body: "1000コインをプレゼント",
+      kind: "present",
+      icon: "present",
+      read: false,
+      receivedAt: 1773833090511,
+      source: {
+        kind: "welcome_delivery",
+        welcomeDeliveryMasterId: "welcome-123",
+      },
+      deliveryContent: {
+        expireAt: 1777561140000,
+        receivedAt: 1773833090511,
+      },
+    });
+  });
+
   test("receives personal notification delivery content with PUT and received status", async () => {
     let seenUrl = "";
     let seenMethod = "";
@@ -680,8 +1180,7 @@ describe("NotificationsClient", () => {
 
         return new Response(
           JSON.stringify({
-            title: "detail title",
-            body: "detail body",
+            result: true,
           }),
           {
             status: 200,
@@ -707,8 +1206,7 @@ describe("NotificationsClient", () => {
     expect(seenMethod).toBe("PUT");
     expect(seenBody).toBe(JSON.stringify({ status: "received" }));
     expect(result).toEqual({
-      title: "detail title",
-      body: "detail body",
+      result: true,
     });
   });
 });

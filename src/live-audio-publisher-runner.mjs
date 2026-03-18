@@ -191,6 +191,7 @@ try {
           const audioBuffer = await audioContext.decodeAudioData(bytes.buffer.slice(0));
           const bufferSource = audioContext.createBufferSource();
           bufferSource.buffer = audioBuffer;
+          bufferSource.loop = !!source.loop;
           bufferSource.connect(gainNode);
           bufferSource.start();
           stopSource = async () => {

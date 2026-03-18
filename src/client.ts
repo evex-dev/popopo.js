@@ -16,6 +16,15 @@ import type {
   LiveCommentCreateRequest,
   LiveCommentListOptions,
   LiveCommentListResult,
+  LiveSelection,
+  LiveSelectionCreateRequest,
+  LiveSelectionCreateResult,
+  LiveSelectionParticipant,
+  LiveSelectionParticipantListOptions,
+  LiveSelectionParticipantListResult,
+  LiveSelectionListOptions,
+  LiveSelectionListResult,
+  LiveSelectionSequenceStartResult,
   LiveAudioStream,
   LiveEnterResult,
   LiveReceiveInfo,
@@ -1272,6 +1281,7 @@ export class SpacesClient {
     spaceKey: string,
     options: SpaceMessageListOptions = {},
   ): Promise<SpaceMessageListResult> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
     const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
       url: buildFirestoreCollectionUrl(
@@ -1281,7 +1291,7 @@ export class SpacesClient {
       ),
       auth: "none",
       headers: {
-        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+        authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: compactObject({
         key: this.runtime.options.firebase.apiKey,
@@ -1436,6 +1446,172 @@ export class LivesClient {
     });
   }
 
+  async createSelection<TResponse = LiveSelectionCreateResult>(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      body: LiveSelectionCreateRequest;
+      request?: HomeDisplaySpacesRequest;
+      query?: RequestQuery;
+    },
+  ): Promise<TResponse> {
+    const context = await resolveLiveContext(this.runtime, input);
+
+    return this.runtime.http.request<TResponse, LiveSelectionCreateRequest>({
+      method: "POST",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        `/api/v2/spaces/${encodeURIComponent(context.spaceKey)}/lives/${encodeURIComponent(context.liveId)}/selections`,
+      ),
+      body: input.body,
+      query: input.query,
+    });
+  }
+
+  async listSelections(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      options?: LiveSelectionListOptions;
+      request?: HomeDisplaySpacesRequest;
+    } = {},
+  ): Promise<LiveSelectionListResult> {
+    const context = await resolveLiveContext(this.runtime, input);
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: "GET",
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath("spaces", context.spaceKey, "lives", context.liveId, "selections"),
+      ),
+      auth: "none",
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: input.options?.limit,
+        orderBy: input.options?.orderBy,
+        pageToken: input.options?.pageToken,
+      }) as RequestQuery,
+    });
+
+    return parseLiveSelectionList(payload);
+  }
+
+  async getSelection(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      selectionId: string;
+      request?: HomeDisplaySpacesRequest;
+      query?: RequestQuery;
+    },
+  ): Promise<LiveSelection> {
+    const context = await resolveLiveContext(this.runtime, input);
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: "GET",
+      url: buildFirestoreDocumentUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          "spaces",
+          context.spaceKey,
+          "lives",
+          context.liveId,
+          "selections",
+          input.selectionId,
+        ),
+      ),
+      auth: "none",
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: {
+        key: this.runtime.options.firebase.apiKey,
+      },
+    });
+
+    return toLiveSelection(parseFirestoreDocument(payload));
+  }
+
+  async listSelectionParticipants(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      selectionId: string;
+      options?: LiveSelectionParticipantListOptions;
+      request?: HomeDisplaySpacesRequest;
+    },
+  ): Promise<LiveSelectionParticipantListResult> {
+    const context = await resolveLiveContext(this.runtime, input);
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: "GET",
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          "spaces",
+          context.spaceKey,
+          "lives",
+          context.liveId,
+          "selections",
+          input.selectionId,
+          "participants",
+        ),
+      ),
+      auth: "none",
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: input.options?.limit,
+        orderBy: input.options?.orderBy,
+        pageToken: input.options?.pageToken,
+      }) as RequestQuery,
+    });
+
+    return parseLiveSelectionParticipantList(payload);
+  }
+
+  async startSelectionPseudoNominate<TResponse = LiveSelectionSequenceStartResult>(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      selectionId: string;
+      count: number;
+      sequenceId: string;
+      request?: HomeDisplaySpacesRequest;
+      query?: RequestQuery;
+    },
+  ): Promise<TResponse> {
+    return this.postSelectionSequenceAction<TResponse>({
+      ...input,
+      action: "pseudo-nominate",
+    });
+  }
+
+  async startSelectionDraw<TResponse = LiveSelectionSequenceStartResult>(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      selectionId: string;
+      count: number;
+      sequenceId: string;
+      request?: HomeDisplaySpacesRequest;
+      query?: RequestQuery;
+    },
+  ): Promise<TResponse> {
+    return this.postSelectionSequenceAction<TResponse>({
+      ...input,
+      action: "nominate",
+    });
+  }
+
   async listComments(
     input: {
       spaceKey?: string;
@@ -1445,6 +1621,7 @@ export class LivesClient {
     } = {},
   ): Promise<LiveCommentListResult> {
     const context = await resolveLiveContext(this.runtime, input);
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
     const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
       url: buildFirestoreCollectionUrl(
@@ -1454,7 +1631,7 @@ export class LivesClient {
       ),
       auth: "none",
       headers: {
-        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+        authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: compactObject({
         key: this.runtime.options.firebase.apiKey,
@@ -1467,6 +1644,39 @@ export class LivesClient {
     return parseLiveCommentList(payload);
   }
 
+  private async postSelectionSequenceAction<TResponse>(
+    input: {
+      spaceKey?: string;
+      liveId?: string;
+      selectionId: string;
+      count: number;
+      sequenceId: string;
+      action: "nominate" | "pseudo-nominate";
+      request?: HomeDisplaySpacesRequest;
+      query?: RequestQuery;
+    },
+  ): Promise<TResponse> {
+    const context = await resolveLiveContext(this.runtime, input);
+
+    return this.runtime.http.request<TResponse, {
+      count: number;
+      sequence: { id: string };
+    }>({
+      method: "POST",
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        `/api/v2/spaces/${encodeURIComponent(context.spaceKey)}/lives/${encodeURIComponent(context.liveId)}/selections/${encodeURIComponent(input.selectionId)}/sequences/${input.action}`,
+      ),
+      body: {
+        count: input.count,
+        sequence: {
+          id: input.sequenceId,
+        },
+      },
+      query: input.query,
+    });
+  }
+
   async getLiveDocument(
     input: {
       spaceKey?: string;
@@ -1476,6 +1686,7 @@ export class LivesClient {
     } = {},
   ): Promise<FirestoreDocument<Record<string, unknown>>> {
     const context = await resolveLiveContext(this.runtime, input);
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
     const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
       url: buildFirestoreDocumentUrl(
@@ -1485,7 +1696,7 @@ export class LivesClient {
       ),
       auth: "none",
       headers: {
-        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+        authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: {
         key: this.runtime.options.firebase.apiKey,
@@ -1629,6 +1840,7 @@ export class CoinsClient {
     userId = requireUserId(this.runtime.http),
   ): Promise<FirestoreDocument<UserPrivateData>> {
     const documentPath = buildFirestoreDocumentPath("user-privates", userId);
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
     const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
       url: buildFirestoreDocumentUrl(
@@ -1638,7 +1850,7 @@ export class CoinsClient {
       ),
       auth: "none",
       headers: {
-        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+        authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: {
         key: this.runtime.options.firebase.apiKey,
@@ -1805,6 +2017,7 @@ export class NotificationsClient {
   async list<TResponse = NotificationItem[]>(
     query?: RequestQuery,
   ): Promise<TResponse> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
     const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
       url: buildFirestoreCollectionUrl(
@@ -1814,7 +2027,7 @@ export class NotificationsClient {
       ),
       auth: "none",
       headers: {
-        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+        authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: compactObject({
         key: this.runtime.options.firebase.apiKey,
@@ -1835,6 +2048,7 @@ export class NotificationsClient {
   async getById<TResponse = NotificationItem>(
     notificationId: string,
   ): Promise<TResponse> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
     const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
       url: buildFirestoreDocumentUrl(
@@ -1844,7 +2058,7 @@ export class NotificationsClient {
       ),
       auth: "none",
       headers: {
-        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+        authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: {
         key: this.runtime.options.firebase.apiKey,
@@ -1867,6 +2081,7 @@ export class NotificationsClient {
     const userId = getNotificationUserId(query) ?? requireUserId(this.runtime.http);
     const kind = getNotificationFilterKind(query);
     const defaultOrderBy = kind ? "scheduled_delivery_at desc" : "created_at desc";
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
     const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
       url: buildFirestoreCollectionUrl(
@@ -1876,7 +2091,7 @@ export class NotificationsClient {
       ),
       auth: "none",
       headers: {
-        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+        authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: compactObject({
         key: this.runtime.options.firebase.apiKey,
@@ -1899,6 +2114,7 @@ export class NotificationsClient {
     query?: RequestQuery,
   ): Promise<TResponse> {
     const userId = getNotificationUserId(query) ?? requireUserId(this.runtime.http);
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime);
     const payload = await this.runtime.http.request<Record<string, unknown>>({
       method: "GET",
       url: buildFirestoreDocumentUrl(
@@ -1913,7 +2129,7 @@ export class NotificationsClient {
       ),
       auth: "none",
       headers: {
-        authorization: `Bearer ${requireFirebaseBearerToken(this.runtime.http)}`,
+        authorization: `Bearer ${firebaseBearerToken}`,
       },
       query: {
         key: this.runtime.options.firebase.apiKey,
@@ -2458,16 +2674,60 @@ function requireUserId(http: HttpClient): string {
   return userId;
 }
 
-function requireFirebaseBearerToken(http: HttpClient): string {
-  const token = http.getSession().firebaseIdToken ?? http.getSession().bearerToken;
+async function ensureFirebaseBearerToken(runtime: ClientRuntime): Promise<string> {
+  const session = runtime.http.getSession();
+  const token = session.firebaseIdToken ?? session.bearerToken;
 
-  if (!token) {
+  if (!token && !session.refreshToken) {
     throw new PopopoConfigurationError(
       "No Firebase ID token is available. Sign in first or set `session.firebaseIdToken` explicitly.",
     );
   }
 
+  if (!token || isJwtExpired(token)) {
+    const refreshed = await new FirebaseAuthClient(runtime).refreshFirebaseIdToken(
+      session.refreshToken,
+    );
+    return refreshed.idToken;
+  }
+
   return token;
+}
+
+function isJwtExpired(token: string, skewSeconds = 60): boolean {
+  const payload = decodeJwtPayload(token);
+  const exp = payload?.exp;
+
+  if (typeof exp !== "number" || !Number.isFinite(exp)) {
+    return false;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  return exp <= now + skewSeconds;
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
+  const segments = token.split(".");
+  const payloadSegment = segments[1];
+
+  if (segments.length < 2 || !payloadSegment) {
+    return undefined;
+  }
+
+  try {
+    const normalized = payloadSegment
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const decoded = Buffer.from(padded, "base64").toString("utf8");
+    const payload = JSON.parse(decoded);
+
+    return payload && typeof payload === "object"
+      ? payload as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function flattenHomeDisplaySpaces(
@@ -2549,6 +2809,28 @@ function parseLiveCommentList(payload: Record<string, unknown>): LiveCommentList
   };
 }
 
+function parseLiveSelectionList(payload: Record<string, unknown>): LiveSelectionListResult {
+  const parsed = parseFirestoreDocumentList(payload);
+
+  return {
+    selections: parsed.documents.map((document) => toLiveSelection(document)),
+    nextPageToken: parsed.nextPageToken,
+    raw: parsed.raw,
+  };
+}
+
+function parseLiveSelectionParticipantList(
+  payload: Record<string, unknown>,
+): LiveSelectionParticipantListResult {
+  const parsed = parseFirestoreDocumentList(payload);
+
+  return {
+    participants: parsed.documents.map((document) => toLiveSelectionParticipant(document)),
+    nextPageToken: parsed.nextPageToken,
+    raw: parsed.raw,
+  };
+}
+
 function parseSpaceMessageList(payload: Record<string, unknown>): SpaceMessageListResult {
   const parsed = parseFirestoreDocumentList(payload);
 
@@ -2575,6 +2857,56 @@ function toLiveComment(
     user: (record.user && typeof record.user === "object")
       ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
       : undefined,
+    raw: document,
+    ...record,
+  };
+}
+
+function toLiveSelection(
+  document: FirestoreDocument<Record<string, unknown>>,
+): LiveSelection {
+  const record = document.fields;
+  const selectionId =
+    optionalString(record.selection_id) ??
+    optionalString(record.id) ??
+    lastPathSegment(document.name);
+
+  return {
+    id: selectionId,
+    selectionId,
+    documentPath: document.name,
+    kind: optionalString(record.kind),
+    title: optionalString(record.title),
+    status: optionalString(record.status),
+    participants: Array.isArray(record.participants) ? record.participants : undefined,
+    createdAt: toFiniteNumber(record.created_at),
+    updatedAt: toFiniteNumber(record.updated_at),
+    raw: document,
+    ...record,
+  };
+}
+
+function toLiveSelectionParticipant(
+  document: FirestoreDocument<Record<string, unknown>>,
+): LiveSelectionParticipant {
+  const record = document.fields;
+  const participantId =
+    optionalString(record.participant_id) ??
+    optionalString(record.id) ??
+    lastPathSegment(document.name);
+
+  return {
+    id: participantId,
+    participantId,
+    documentPath: document.name,
+    value: optionalString(record.value),
+    selected: optionalBoolean(record.selected),
+    displaying: optionalBoolean(record.displaying),
+    user: (record.user && typeof record.user === "object")
+      ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
+      : undefined,
+    createdAt: toFiniteNumber(record.created_at),
+    updatedAt: toFiniteNumber(record.updated_at),
     raw: document,
     ...record,
   };
@@ -2618,6 +2950,8 @@ function toPersonalNotification(
   document: FirestoreDocument<Record<string, unknown>>,
 ): PersonalNotificationData {
   const record = document.fields;
+  const source = asObjectRecord(record.source);
+  const deliveryContent = asObjectRecord(record.delivery_content);
   const id =
     optionalString(record.personal_notification_id) ??
     optionalString(record.notification_id) ??
@@ -2631,19 +2965,43 @@ function toPersonalNotification(
     rawDocument: document,
     type: optionalString(record.type) ?? optionalString(record.kind),
     kind: optionalString(record.kind),
+    icon: optionalString(record.icon),
     title: optionalString(record.title),
-    body: optionalString(record.body),
+    body: optionalString(record.body) ?? extractNotificationBody(record.content),
     read: optionalBoolean(record.read) ?? optionalBoolean(record.is_read),
     createdAt: toNotificationTemporalValue(record.created_at),
     updatedAt: toNotificationTemporalValue(record.updated_at),
     unreadAt: toNotificationTemporalValue(record.unread_at),
     readAt: toNotificationTemporalValue(record.read_at),
     deliveredAt: toNotificationTemporalValue(record.delivered_at),
-    receivedAt: toNotificationTemporalValue(record.received_at),
+    receivedAt: toNotificationTemporalValue(record.received_at) ??
+      toNotificationTemporalValue(deliveryContent?.received_at),
     scheduledDeliveryAt: toNotificationTemporalValue(record.scheduled_delivery_at),
     imageUrl: optionalString(record.imageUrl) ?? optionalString(record.image_url),
     thumbnailUrl: optionalString(record.thumbnailUrl) ?? optionalString(record.thumbnail_url),
     transitionUrl: optionalString(record.transitionUrl) ?? optionalString(record.transition_url),
+    source: source
+      ? {
+        ...source,
+        kind: optionalString(source.kind),
+        welcomeDeliveryMasterId:
+          optionalString(source.welcomeDeliveryMasterId) ??
+          optionalString(source.welcome_delivery_master_id),
+        bulkDeliveryMasterId:
+          optionalString(source.bulkDeliveryMasterId) ??
+          optionalString(source.bulk_delivery_master_id),
+        subscriptionItemGrantMasterId:
+          optionalString(source.subscriptionItemGrantMasterId) ??
+          optionalString(source.subscription_item_grant_master_id),
+      }
+      : undefined,
+    deliveryContent: deliveryContent
+      ? {
+        ...deliveryContent,
+        expireAt: toNotificationTemporalValue(deliveryContent.expire_at),
+        receivedAt: toNotificationTemporalValue(deliveryContent.received_at),
+      }
+      : undefined,
   };
 }
 
@@ -2665,7 +3023,7 @@ function toSystemNotification(
     rawDocument: document,
     type: optionalString(record.type) ?? optionalString(record.kind),
     title: optionalString(record.title),
-    body: optionalString(record.body),
+    body: optionalString(record.body) ?? extractNotificationBody(record.content),
     createdAt: toNotificationTemporalValue(record.created_at),
     updatedAt: toNotificationTemporalValue(record.updated_at),
     unreadAt: toNotificationTemporalValue(record.unread_at),
@@ -2809,6 +3167,26 @@ function toNotificationTemporalValue(
   }
 
   return toFiniteNumber(value) ?? optionalString(value);
+}
+
+function extractNotificationBody(value: unknown): string | undefined {
+  const content = asObjectRecord(value);
+  const ops = Array.isArray(content?.ops) ? content.ops : undefined;
+
+  if (!ops) {
+    return undefined;
+  }
+
+  const text = ops
+    .map((entry) =>
+      entry && typeof entry === "object"
+        ? optionalString((entry as Record<string, unknown>).insert)
+        : undefined
+    )
+    .filter((entry): entry is string => Boolean(entry))
+    .join("");
+
+  return text || undefined;
 }
 
 function decodeFirestoreFields(fields: unknown): Record<string, unknown> {

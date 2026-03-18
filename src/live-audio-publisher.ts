@@ -16,6 +16,7 @@ export type LiveAudioPublishOptions = {
   browserPath?: string;
   headless?: boolean;
   audioFilePath?: string;
+  loop?: boolean;
   toneHz?: number;
   gain?: number;
   durationMs?: number;
@@ -27,6 +28,7 @@ type PublisherSourceConfig =
       kind: "file";
       audioBase64: string;
       gain: number;
+      loop: boolean;
     }
   | {
       kind: "tone";
@@ -148,6 +150,7 @@ async function resolvePublisherSource(
       kind: "file",
       audioBase64,
       gain,
+      loop: options.loop ?? false,
     };
   }
 

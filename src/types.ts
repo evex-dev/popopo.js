@@ -219,6 +219,87 @@ export interface LiveAudioStream {
   cancel: () => void;
 }
 
+export type LiveSelectionKind = "message" | "talk" | "unknown" | (string & {});
+export type LiveSelectionStatus = "published" | "finished" | (string & {});
+
+export interface LiveSelection {
+  id: string;
+  selectionId: string;
+  documentPath: string;
+  kind?: LiveSelectionKind;
+  title?: string;
+  status?: LiveSelectionStatus;
+  participants?: unknown[];
+  createdAt?: number;
+  updatedAt?: number;
+  raw: FirestoreDocument<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+export interface LiveSelectionCreateRequest {
+  kind: LiveSelectionKind;
+  title?: string;
+  [key: string]: unknown;
+}
+
+export interface LiveSelectionCreateResult {
+  id?: string;
+  selectionId?: string;
+  [key: string]: unknown;
+}
+
+export interface LiveSelectionListOptions {
+  limit?: number;
+  orderBy?: string;
+  pageToken?: string;
+}
+
+export interface LiveSelectionListResult {
+  selections: LiveSelection[];
+  nextPageToken?: string;
+  raw: Record<string, unknown>;
+}
+
+export interface LiveSelectionParticipantUser {
+  id?: string;
+  name?: string;
+  alias?: string;
+  icon?: string;
+  onlineSpaceId?: string;
+  [key: string]: unknown;
+}
+
+export interface LiveSelectionParticipant {
+  id: string;
+  participantId: string;
+  documentPath: string;
+  value?: string;
+  selected?: boolean;
+  displaying?: boolean;
+  user?: LiveSelectionParticipantUser;
+  createdAt?: number;
+  updatedAt?: number;
+  raw: FirestoreDocument<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+export interface LiveSelectionParticipantListOptions {
+  limit?: number;
+  orderBy?: string;
+  pageToken?: string;
+}
+
+export interface LiveSelectionParticipantListResult {
+  participants: LiveSelectionParticipant[];
+  nextPageToken?: string;
+  raw: Record<string, unknown>;
+}
+
+export interface LiveSelectionSequenceStartResult {
+  sequenceId?: string;
+  [key: string]: unknown;
+}
+
 export interface SpaceCreateRequest {
   name: string;
   backgroundId: string;
@@ -435,6 +516,7 @@ export interface NotificationItem {
 export interface PersonalNotificationData extends NotificationItem {
   personalNotificationId?: string;
   kind?: string;
+  icon?: string;
   unreadAt?: string | number | null;
   readAt?: string | number | null;
   deliveredAt?: string | number | null;
@@ -443,10 +525,27 @@ export interface PersonalNotificationData extends NotificationItem {
   imageUrl?: string;
   thumbnailUrl?: string;
   transitionUrl?: string;
+  source?: PersonalNotificationSource;
+  deliveryContent?: PersonalNotificationDeliveryState;
+  [key: string]: unknown;
+}
+
+export interface PersonalNotificationSource {
+  kind?: string;
+  welcomeDeliveryMasterId?: string;
+  bulkDeliveryMasterId?: string;
+  subscriptionItemGrantMasterId?: string;
+  [key: string]: unknown;
+}
+
+export interface PersonalNotificationDeliveryState {
+  expireAt?: string | number | null;
+  receivedAt?: string | number | null;
   [key: string]: unknown;
 }
 
 export interface PersonalNotificationDeliveryContent {
+  result?: boolean;
   title?: string;
   body?: string;
   receivedAt?: string | null;
