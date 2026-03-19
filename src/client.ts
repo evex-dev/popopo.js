@@ -12,6 +12,9 @@ import type {
   LiveCommentCreateRequest,
   LiveCommentListOptions,
   LiveCommentListResult,
+  LivePowerSummary,
+  LivePowerSummaryListOptions,
+  LivePowerSummaryListResult,
   LiveSelection,
   LiveSelectionCreateRequest,
   LiveSelectionCreateResult,
@@ -24,6 +27,12 @@ import type {
   LiveSelectionListOptions,
   LiveSelectionListResult,
   LiveSelectionSequenceStartResult,
+  LiveViewer,
+  LiveViewerListOptions,
+  LiveViewerListResult,
+  LiveViewLog,
+  LiveViewLogListOptions,
+  LiveViewLogListResult,
   LivePowerSendRequest,
   LivePowerSendResult,
   LiveAudioStream,
@@ -129,6 +138,8 @@ export const DEFAULT_FIREBASE_AUTH_BASE_URL =
   'https://www.googleapis.com/identitytoolkit/v3/relyingparty'
 export const DEFAULT_FIREBASE_SECURE_TOKEN_BASE_URL = 'https://securetoken.googleapis.com/v1'
 export const DEFAULT_TSO_OAUTH_BASE_URL = 'https://oauth.dev.seed.virtualcast.jp'
+export const DEFAULT_ALGOLIA_APPLICATION_ID = '59S66KMOYI'
+export const DEFAULT_ALGOLIA_SEARCH_API_KEY = 'd5999d3f32c467d3798f165d3fedc2e1'
 const DEFAULT_FIREBASE_ANDROID_CLIENT_TYPE = 'CLIENT_TYPE_ANDROID'
 const DEFAULT_FIREBASE_RECAPTCHA_VERSION = 'RECAPTCHA_ENTERPRISE'
 export const DEFAULT_TENCENT_SDK_APP_ID = 20026171
@@ -1216,6 +1227,20 @@ export class SpacesClient {
     }
   }
 
+  touchConnection<TResponse = Record<string, unknown>>(
+    spaceKey: string,
+    query?: RequestQuery,
+  ): Promise<TResponse> {
+    return this.runtime.http.request<TResponse>({
+      method: 'PUT',
+      url: buildAbsoluteUrl(
+        this.runtime.options.apiBaseUrl,
+        `/api/v2/spaces/${encodeURIComponent(spaceKey)}/users/me/connection/last-connected-at`,
+      ),
+      query,
+    })
+  }
+
   postMessage<TResponse = { result?: boolean; [key: string]: unknown }>(
     spaceKey: string,
     body: SpaceMessageCreateRequest,
@@ -1481,7 +1506,16 @@ export class LivesClient {
     input: LiveViewerHeartbeatOptions & { intervalMs?: number } = {},
   ): Promise<LiveViewerHeartbeatSession> {
     const intervalMs = input.intervalMs ?? 60_000
-    const context = await this.createViewer(input)
+    const context = await resolveLiveViewerContext(this.runtime, input)
+
+    try {
+      await this.createViewer(context)
+    } catch (error) {
+      if (!(error instanceof PopopoApiError) || error.status !== 403) {
+        throw error
+      }
+    }
+
     await this.heartbeatViewer(context)
 
     let heartbeatRunning = false
@@ -1726,6 +1760,196 @@ export class LivesClient {
     })
 
     return parseLiveCommentList(payload)
+  }
+
+  async listViewers(
+    input: {
+      spaceKey?: string
+      liveId?: string
+      options?: LiveViewerListOptions
+      request?: HomeDisplaySpacesRequest
+    } = {},
+  ): Promise<LiveViewerListResult> {
+    const context = await resolveLiveContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          'spaces',
+          context.spaceKey,
+          'lives',
+          context.liveId,
+          'live-viewers',
+        ),
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: input.options?.limit,
+        orderBy: input.options?.orderBy,
+        pageToken: input.options?.pageToken,
+      }) as RequestQuery,
+    })
+
+    return parseLiveViewerList(payload)
+  }
+
+  async getViewer(input: {
+    spaceKey?: string
+    liveId?: string
+    userId?: string
+    request?: HomeDisplaySpacesRequest
+  } = {}): Promise<LiveViewer | undefined> {
+    const context = await resolveLiveViewerContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    let payload: Record<string, unknown>
+
+    try {
+      payload = await this.runtime.http.request<Record<string, unknown>>({
+        method: 'GET',
+        url: buildFirestoreDocumentUrl(
+          this.runtime.options.firebase.firestoreBaseUrl,
+          this.runtime.options.firebase.projectId,
+          context.documentPath,
+        ),
+        auth: 'none',
+        headers: {
+          authorization: `Bearer ${firebaseBearerToken}`,
+        },
+        query: {
+          key: this.runtime.options.firebase.apiKey,
+        },
+      })
+    } catch (error) {
+      if (error instanceof PopopoApiError && error.status === 404) {
+        return undefined
+      }
+
+      throw error
+    }
+
+    return toLiveViewer(parseFirestoreDocument(payload))
+  }
+
+  async listViewLogs(
+    input: {
+      spaceKey?: string
+      liveId?: string
+      userId?: string
+      options?: LiveViewLogListOptions
+      request?: HomeDisplaySpacesRequest
+    } = {},
+  ): Promise<LiveViewLogListResult> {
+    const context = await resolveLiveViewerContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        `${context.documentPath}/live-view-logs`,
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: input.options?.limit,
+        orderBy: input.options?.orderBy,
+        pageToken: input.options?.pageToken,
+      }) as RequestQuery,
+    })
+
+    return parseLiveViewLogList(payload)
+  }
+
+  async getPowerSummary(input: {
+    spaceKey?: string
+    liveId?: string
+    userId?: string
+    request?: HomeDisplaySpacesRequest
+  } = {}): Promise<LivePowerSummary | undefined> {
+    const context = await resolveLiveViewerContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    let payload: Record<string, unknown>
+
+    try {
+      payload = await this.runtime.http.request<Record<string, unknown>>({
+        method: 'GET',
+        url: buildFirestoreDocumentUrl(
+          this.runtime.options.firebase.firestoreBaseUrl,
+          this.runtime.options.firebase.projectId,
+          buildFirestoreCollectionPath(
+            'spaces',
+            context.spaceKey,
+            'lives',
+            context.liveId,
+            'live-power-summaries',
+            context.userId,
+          ),
+        ),
+        auth: 'none',
+        headers: {
+          authorization: `Bearer ${firebaseBearerToken}`,
+        },
+        query: {
+          key: this.runtime.options.firebase.apiKey,
+        },
+      })
+    } catch (error) {
+      if (error instanceof PopopoApiError && error.status === 404) {
+        return undefined
+      }
+
+      throw error
+    }
+
+    return toLivePowerSummary(parseFirestoreDocument(payload))
+  }
+
+  async listPowerSummaries(
+    input: {
+      spaceKey?: string
+      liveId?: string
+      options?: LivePowerSummaryListOptions
+      request?: HomeDisplaySpacesRequest
+    } = {},
+  ): Promise<LivePowerSummaryListResult> {
+    const context = await resolveLiveContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreCollectionUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath(
+          'spaces',
+          context.spaceKey,
+          'lives',
+          context.liveId,
+          'live-power-summaries',
+        ),
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: compactObject({
+        key: this.runtime.options.firebase.apiKey,
+        pageSize: input.options?.limit,
+        orderBy: input.options?.orderBy,
+        pageToken: input.options?.pageToken,
+      }) as RequestQuery,
+    })
+
+    return parseLivePowerSummaryList(payload)
   }
 
   private async postSelectionSequenceAction<TResponse>(input: {
@@ -2230,63 +2454,45 @@ export class SkinsClient {
   }
 
   async listStore(input: StoreSkinListOptions = {}): Promise<StoreSkinListResult> {
-    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
-    const itemsResult = await fetchAllFirestoreCollectionDocuments(this.runtime, firebaseBearerToken, {
-      collectionPath: buildFirestoreCollectionPath('items'),
-      orderBy: input.orderBy ?? 'default_price asc',
-      pageSize: getStoreSkinPageSize(input),
+    const itemsResult = await fetchAllAlgoliaShopItemHits(this.runtime, {
+      indexName: getStoreSkinAlgoliaIndexName(input.orderBy),
+      hitsPerPage: getStoreSkinPageSize(input),
+      limit: getStoreSkinLimit(input),
     })
 
-    const candidates = itemsResult.documents
-      .map((document) => toStoreSkin(document))
+    const candidates = itemsResult.hits
+      .map((hit) => toStoreSkinFromAlgoliaHit(hit))
       .filter((skin) => skin.kind === 'look')
+      .filter((skin) => skin.isSearchable !== false)
       .filter((skin) => input.includeNonPublic || skin.status === 'public')
 
     if (input.includeInactive) {
       return {
         skins: candidates.slice(0, getStoreSkinLimit(input)),
         raw: {
+          source: 'algolia',
           itemPages: itemsResult.rawPages,
         },
       }
     }
 
-    const now = Math.floor(Date.now() / 1000)
-    const distributionRawPages: Record<string, Record<string, unknown>[]> = {}
-    const hydrated = await Promise.all(
-      candidates.map(async (skin) => {
-        const distributionsResult = await fetchAllFirestoreCollectionDocuments(
-          this.runtime,
-          firebaseBearerToken,
-          {
-            collectionPath: buildFirestoreCollectionPath('items', skin.itemId, 'item-distributions'),
-            orderBy: 'start_at desc',
-            pageSize: 100,
-          },
-        )
-        const distributions = distributionsResult.documents.map((document) =>
-          toStoreSkinDistribution(document),
-        )
-        const activeDistribution = distributions.find((distribution) =>
-          isStoreSkinDistributionActive(distribution, now),
-        )
+    const hydrated = candidates.map((skin) => {
+      const activeDistribution = skin.activeDistribution
+      const distributions = activeDistribution ? [activeDistribution] : []
 
-        distributionRawPages[skin.itemId] = distributionsResult.rawPages
-
-        return {
-          ...skin,
-          isOnSale: Boolean(activeDistribution),
-          activeDistribution,
-          distributions,
-        }
-      }),
-    )
+      return {
+        ...skin,
+        isOnSale: Boolean(activeDistribution),
+        activeDistribution,
+        distributions,
+      }
+    })
 
     return {
       skins: hydrated.filter((skin) => skin.isOnSale).slice(0, getStoreSkinLimit(input)),
       raw: {
+        source: 'algolia',
         itemPages: itemsResult.rawPages,
-        distributionPages: distributionRawPages,
       },
     }
   }
@@ -2354,20 +2560,20 @@ export class SkinsClient {
     })
   }
 
-  change<TResponse = SkinChangeResult>(request: SkinChangeRequest): Promise<TResponse> {
-    const { inventoryId, kind = 'inventory', ...rest } = request
+  async change<TResponse = SkinChangeResult>(request: SkinChangeRequest): Promise<TResponse> {
+    const { inventoryId, kind, ...rest } = request
     const endpointPath = this.runtime.endpoints.users.updateLook.startsWith('/api/')
       ? this.runtime.endpoints.users.updateLook
       : `/api/v2${this.runtime.endpoints.users.updateLook}`
 
     return this.runtime.http.request<TResponse>({
-      method: 'POST',
+      method: 'PUT',
       url: buildAbsoluteUrl(this.runtime.options.apiBaseUrl, endpointPath),
       auth: 'bearer',
       body: compactObject({
         ...rest,
-        kind,
         id: inventoryId,
+        kind: kind ?? 'Inventory',
       }),
     })
   }
@@ -3340,6 +3546,36 @@ function parseLiveCommentList(payload: Record<string, unknown>): LiveCommentList
   }
 }
 
+function parseLiveViewerList(payload: Record<string, unknown>): LiveViewerListResult {
+  const parsed = parseFirestoreDocumentList(payload)
+
+  return {
+    viewers: parsed.documents.map((document) => toLiveViewer(document)),
+    nextPageToken: parsed.nextPageToken,
+    raw: parsed.raw,
+  }
+}
+
+function parseLiveViewLogList(payload: Record<string, unknown>): LiveViewLogListResult {
+  const parsed = parseFirestoreDocumentList(payload)
+
+  return {
+    logs: parsed.documents.map((document) => toLiveViewLog(document)),
+    nextPageToken: parsed.nextPageToken,
+    raw: parsed.raw,
+  }
+}
+
+function parseLivePowerSummaryList(payload: Record<string, unknown>): LivePowerSummaryListResult {
+  const parsed = parseFirestoreDocumentList(payload)
+
+  return {
+    summaries: parsed.documents.map((document) => toLivePowerSummary(document)),
+    nextPageToken: parsed.nextPageToken,
+    raw: parsed.raw,
+  }
+}
+
 function parseLiveSelectionList(payload: Record<string, unknown>): LiveSelectionListResult {
   const parsed = parseFirestoreDocumentList(payload)
 
@@ -3405,6 +3641,65 @@ function toLiveComment(document: FirestoreDocument<Record<string, unknown>>): Li
     createdAt: toFiniteNumber(record.created_at),
     updatedAt: toFiniteNumber(record.updated_at),
     priority: toFiniteNumber(record.priority),
+    user:
+      record.user && typeof record.user === 'object'
+        ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
+        : undefined,
+    raw: document,
+    ...record,
+  }
+}
+
+function toLiveViewer(document: FirestoreDocument<Record<string, unknown>>): LiveViewer {
+  const record = document.fields
+  const id = optionalString(record.user_id) ?? optionalString(record.id) ?? lastPathSegment(document.name)
+
+  return {
+    id,
+    documentPath: document.name,
+    spaceKey: optionalString(record.space_key),
+    liveId: optionalString(record.live_id),
+    userId: optionalString(record.user_id),
+    newUserLiveCommentId:
+      record.new_user_live_comment_id === null
+        ? null
+        : optionalString(record.new_user_live_comment_id),
+    createdAt: toFirestoreTemporalMillis(record.created_at),
+    updatedAt: toFirestoreTemporalMillis(record.updated_at),
+    raw: document,
+    ...record,
+  }
+}
+
+function toLiveViewLog(document: FirestoreDocument<Record<string, unknown>>): LiveViewLog {
+  const record = document.fields
+
+  return {
+    id: lastPathSegment(document.name),
+    documentPath: document.name,
+    spaceKey: optionalString(record.space_key),
+    liveId: optionalString(record.live_id),
+    userId: optionalString(record.user_id),
+    createdAt: toFirestoreTemporalMillis(record.created_at),
+    updatedAt: toFirestoreTemporalMillis(record.updated_at),
+    raw: document,
+    ...record,
+  }
+}
+
+function toLivePowerSummary(document: FirestoreDocument<Record<string, unknown>>): LivePowerSummary {
+  const record = document.fields
+  const id = optionalString(record.user_id) ?? optionalString(record.id) ?? lastPathSegment(document.name)
+
+  return {
+    id,
+    documentPath: document.name,
+    spaceKey: optionalString(record.space_key),
+    liveId: optionalString(record.live_id),
+    userId: optionalString(record.user_id),
+    power: toFiniteNumber(record.power),
+    createdAt: toFirestoreTemporalMillis(record.created_at),
+    updatedAt: toFirestoreTemporalMillis(record.updated_at),
     user:
       record.user && typeof record.user === 'object'
         ? normalizeLiveCommentUser(record.user as Record<string, unknown>)
@@ -3542,13 +3837,14 @@ function toOwnedSkin(document: FirestoreDocument<Record<string, unknown>>): Owne
   const record = document.fields
   const item = asObjectRecord(record.item)
   const inventoryId = optionalString(record.id) ?? lastPathSegment(document.name)
+  const itemId = optionalString(record.item_id) ?? optionalString(item?.id)
 
   return {
     id: inventoryId,
     inventoryId,
     documentPath: document.name,
     kind: 'inventory',
-    itemId: optionalString(item?.id),
+    itemId,
     itemName: optionalString(item?.name),
     description: optionalString(item?.description),
     createdAt: toFiniteNumber(record.created_at),
@@ -3583,6 +3879,42 @@ function toStoreSkin(document: FirestoreDocument<Record<string, unknown>>): Stor
   }
 }
 
+function toStoreSkinFromAlgoliaHit(hit: Record<string, unknown>): StoreSkin {
+  const itemRecord = asObjectRecord(hit.item)
+  const salePeriodState = asObjectRecord(hit.sale_period_state)
+  const distribution = toStoreSkinDistributionFromAlgoliaHit(hit)
+  const itemId = optionalString(hit.objectID) ?? optionalString(hit.id) ?? distribution.id
+
+  return {
+    id: itemId,
+    itemId,
+    documentPath: `algolia/items/${itemId}`,
+    kind: optionalString(itemRecord?.kind) ?? optionalString(hit.kind),
+    name: optionalString(hit.name),
+    description: optionalString(hit.description),
+    status: optionalString(hit.status),
+    defaultPrice: toFiniteNumber(itemRecord?.default_price) ?? toFiniteNumber(hit.price),
+    media: asObjectRecord(itemRecord?.media),
+    tags: Array.isArray(itemRecord?.tags)
+      ? itemRecord.tags
+      : Array.isArray(hit.tags)
+        ? hit.tags
+        : undefined,
+    saleIds: toStringArray(hit.item_distribution_id ? [hit.item_distribution_id] : undefined),
+    relatedItemIds: toStringArray(hit.related_item_ids ?? hit.related_items),
+    isOnSale: distribution.active === true,
+    activeDistribution: distribution.active === true ? distribution : undefined,
+    distributions: [distribution],
+    raw: hit,
+    ...hit,
+    ...itemRecord,
+    salePeriodState,
+    isSearchable: optionalBoolean(hit.is_searchable),
+    price: toFiniteNumber(hit.price),
+    salePrice: toFiniteNumber(hit.sale_price),
+  }
+}
+
 function toStoreSkinDistribution(
   document: FirestoreDocument<Record<string, unknown>>,
 ): StoreSkinDistribution {
@@ -3600,6 +3932,31 @@ function toStoreSkinDistribution(
     salePeriodState,
     raw: document,
     ...record,
+  }
+}
+
+function toStoreSkinDistributionFromAlgoliaHit(
+  hit: Record<string, unknown>,
+): StoreSkinDistribution {
+  const distributionId =
+    optionalString(hit.item_distribution_id) ??
+    optionalString(hit.distribution_id) ??
+    optionalString(hit.objectID) ??
+    'unknown'
+  const itemId = optionalString(hit.objectID) ?? 'unknown'
+  const salePeriodState = asObjectRecord(hit.sale_period_state)
+  const active = optionalBoolean(salePeriodState?.active)
+
+  return {
+    id: distributionId,
+    documentPath: `algolia/items/${itemId}/item-distributions/${distributionId}`,
+    status: optionalString(hit.status),
+    startAt: toEpochSeconds(hit.start_at),
+    endAt: toEpochSeconds(hit.end_at ?? hit.finish_at),
+    active,
+    salePeriodState,
+    raw: hit,
+    ...hit,
   }
 }
 
@@ -3806,6 +4163,113 @@ function isStoreSkinDistributionActive(
   return true
 }
 
+function getStoreSkinAlgoliaIndexName(orderBy: string | undefined): string {
+  const normalized = normalizeStoreSkinOrderBy(orderBy)
+
+  switch (normalized) {
+    case 'default_price asc':
+    case 'price asc':
+    case 'sale_price asc':
+      return 'items--asc:sale_price'
+    case 'default_price desc':
+    case 'price desc':
+    case 'sale_price desc':
+      return 'items--desc:sale_price'
+    case 'start_at asc':
+      return 'items--asc:start_at'
+    case 'start_at desc':
+      return 'items--desc:start_at'
+    case 'item.popular_score desc':
+    case 'popular_score desc':
+      return 'items--desc:item.popular_score'
+    case 'sale_discount_rate desc':
+      return 'items--desc:sale_discount_rate'
+    case 'recommend_priority desc':
+    case undefined:
+      return 'items--desc:recommend_priority'
+    default:
+      throw new PopopoConfigurationError(
+        `Unsupported store sort order: ${orderBy}. Supported values include \`default_price asc\`, \`sale_price desc\`, \`start_at desc\`, \`item.popular_score desc\`, \`sale_discount_rate desc\`, and \`recommend_priority desc\`.`,
+      )
+  }
+}
+
+function normalizeStoreSkinOrderBy(orderBy: string | undefined): string | undefined {
+  if (!orderBy) {
+    return undefined
+  }
+
+  return orderBy.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+async function fetchAllAlgoliaShopItemHits(
+  runtime: ClientRuntime,
+  input: {
+    indexName: string
+    hitsPerPage: number
+    limit: number
+  },
+): Promise<{
+  hits: Array<Record<string, unknown>>
+  rawPages: Record<string, unknown>[]
+}> {
+  const hits: Array<Record<string, unknown>> = []
+  const rawPages: Record<string, unknown>[] = []
+  let page = 0
+
+  while (true) {
+    const payload = await runtime.http.request<Record<string, unknown>>({
+      method: 'POST',
+      url: buildAlgoliaQueryUrl(input.indexName),
+      auth: 'none',
+      headers: {
+        'x-algolia-application-id': DEFAULT_ALGOLIA_APPLICATION_ID,
+        'x-algolia-api-key': DEFAULT_ALGOLIA_SEARCH_API_KEY,
+      },
+      body: {
+        query: '',
+        hitsPerPage: input.hitsPerPage,
+        page,
+      },
+    })
+
+    rawPages.push(payload)
+
+    const pageHits = Array.isArray(payload.hits)
+      ? payload.hits
+          .map((hit) => asObjectRecord(hit))
+          .filter((hit): hit is Record<string, unknown> => hit !== undefined)
+      : []
+    hits.push(...pageHits)
+
+    const nbPages = toFiniteNumber(payload.nbPages)
+    if (nbPages === undefined || page + 1 >= nbPages || hits.length >= input.limit) {
+      break
+    }
+
+    page += 1
+  }
+
+  return {
+    hits,
+    rawPages,
+  }
+}
+
+function buildAlgoliaQueryUrl(indexName: string): string {
+  return `https://${DEFAULT_ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encodeURIComponent(indexName)}/query`
+}
+
+function toEpochSeconds(value: unknown): number | undefined {
+  const timestamp = toFiniteNumber(value)
+
+  if (timestamp === undefined || !Number.isFinite(timestamp)) {
+    return undefined
+  }
+
+  return timestamp > 10_000_000_000 ? Math.floor(timestamp / 1000) : timestamp
+}
+
 function getRequestQueryString(query: RequestQuery | undefined, key: string): string | undefined {
   if (!query) {
     return undefined
@@ -3908,6 +4372,21 @@ function toNotificationTemporalValue(value: unknown): string | number | null | u
   }
 
   return toFiniteNumber(value) ?? optionalString(value)
+}
+
+function toFirestoreTemporalMillis(value: unknown): number | undefined {
+  const numeric = toFiniteNumber(value)
+  if (numeric !== undefined) {
+    return numeric
+  }
+
+  const stringValue = optionalString(value)
+  if (!stringValue) {
+    return undefined
+  }
+
+  const parsed = Date.parse(stringValue)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 function extractNotificationBody(value: unknown): string | undefined {

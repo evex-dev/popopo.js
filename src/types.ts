@@ -653,7 +653,7 @@ export interface StoreSkinDistribution {
   endAt?: number
   active?: boolean
   salePeriodState?: Record<string, unknown>
-  raw: FirestoreDocument<Record<string, unknown>>
+  raw: unknown
   [key: string]: unknown
 }
 
@@ -674,7 +674,7 @@ export interface StoreSkin {
   isOnSale?: boolean
   activeDistribution?: StoreSkinDistribution
   distributions?: StoreSkinDistribution[]
-  raw: FirestoreDocument<Record<string, unknown>>
+  raw: unknown
   [key: string]: unknown
 }
 
@@ -709,7 +709,7 @@ export interface InitialLookListResult {
   raw: unknown
 }
 
-export type SkinChangeKind = 'inventory' | (string & {})
+export type SkinChangeKind = 'Inventory' | 'DefaultLook' | 'VC' | (string & {})
 
 export interface SkinChangeRequest {
   inventoryId: string

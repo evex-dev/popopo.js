@@ -260,14 +260,16 @@ describe('SkinsClient', () => {
     ])
   })
 
-  test('changes the current skin via the update look API', async () => {
+  test('changes the current skin via the profile look API', async () => {
     let seenUrl = ''
+    let seenMethod = ''
     let seenAuthorization = ''
     let seenBody = ''
 
     const client = new PopopoClient({
       fetch: async (input, init) => {
         seenUrl = String(input)
+        seenMethod = init?.method ?? ''
         seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
         seenBody = String(init?.body ?? '')
 
@@ -288,14 +290,65 @@ describe('SkinsClient', () => {
     })
 
     expect(seenUrl).toBe('https://api.popopo.com/api/v2/users/me/profile/look')
+    expect(seenMethod).toBe('PUT')
     expect(seenAuthorization).toBe('Bearer firebase-token')
     expect(seenBody).toBe(
       JSON.stringify({
-        kind: 'inventory',
         id: 'inventory-001',
+        kind: 'Inventory',
       }),
     )
     expect(result).toEqual({ result: true })
+  })
+
+  test('reads item_id from owned skin inventory documents', async () => {
+    const client = new PopopoClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            documents: [
+              {
+                name: 'projects/popopo-prod/databases/(default)/documents/user-privates/user-123/user-inventories/inventory-001',
+                fields: {
+                  id: { stringValue: 'inventory-001' },
+                  item_id: { stringValue: 'look-001' },
+                  item: {
+                    mapValue: {
+                      fields: {
+                        name: { stringValue: 'Starter Suit' },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        ),
+      session: {
+        userId: 'user-123',
+        firebaseIdToken: 'firebase-token',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.skins.listOwned()
+
+    expect(result.skins).toEqual([
+      expect.objectContaining({
+        inventoryId: 'inventory-001',
+        itemId: 'look-001',
+        itemName: 'Starter Suit',
+      }),
+    ])
   })
 
   test('lists public initial looks from Firestore', async () => {
@@ -479,128 +532,86 @@ describe('SkinsClient', () => {
 
   test('lists public store skins that are currently on sale', async () => {
     const seenUrls: string[] = []
-    const seenAuthorizations: string[] = []
+    const seenAlgoliaApplicationIds: string[] = []
+    const seenAlgoliaApiKeys: string[] = []
+    const seenBodies: string[] = []
 
     const client = new PopopoClient({
       fetch: async (input, init) => {
         const url = String(input)
         seenUrls.push(url)
-        seenAuthorizations.push(new Headers(init?.headers).get('authorization') ?? '')
+        const headers = new Headers(init?.headers)
+        seenAlgoliaApplicationIds.push(headers.get('x-algolia-application-id') ?? '')
+        seenAlgoliaApiKeys.push(headers.get('x-algolia-api-key') ?? '')
+        seenBodies.push(String(init?.body ?? ''))
 
         if (
           url ===
-          'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/items?key=api-key&pageSize=100&orderBy=default_price+asc'
+          'https://59s66kmoyi-dsn.algolia.net/1/indexes/items--desc%3Arecommend_priority/query'
         ) {
           return new Response(
             JSON.stringify({
-              documents: [
+              hits: [
                 {
-                  name: 'projects/popopo-prod/databases/(default)/documents/items/look-001',
-                  fields: {
-                    id: { stringValue: 'look-001' },
-                    kind: { stringValue: 'look' },
-                    name: { stringValue: 'Active Look' },
-                    status: { stringValue: 'public' },
-                    default_price: { integerValue: '100' },
+                  objectID: 'look-001',
+                  item_distribution_id: 'dist-active',
+                  name: 'Active Look',
+                  status: 'public',
+                  is_searchable: true,
+                  start_at: 1_000,
+                  end_at: 4_102_444_800_000,
+                  sale_period_state: {
+                    active: true,
+                  },
+                  item: {
+                    kind: 'look',
+                    default_price: 100,
                   },
                 },
                 {
-                  name: 'projects/popopo-prod/databases/(default)/documents/items/look-002',
-                  fields: {
-                    id: { stringValue: 'look-002' },
-                    kind: { stringValue: 'look' },
-                    name: { stringValue: 'Expired Look' },
-                    status: { stringValue: 'public' },
-                    default_price: { integerValue: '200' },
+                  objectID: 'look-002',
+                  item_distribution_id: 'dist-expired',
+                  name: 'Expired Look',
+                  status: 'public',
+                  is_searchable: true,
+                  start_at: 1_000,
+                  end_at: 2_000,
+                  sale_period_state: {
+                    active: false,
+                  },
+                  item: {
+                    kind: 'look',
+                    default_price: 200,
                   },
                 },
                 {
-                  name: 'projects/popopo-prod/databases/(default)/documents/items/goods-001',
-                  fields: {
-                    id: { stringValue: 'goods-001' },
-                    kind: { stringValue: 'goods' },
-                    name: { stringValue: 'Not a Look' },
-                    status: { stringValue: 'public' },
+                  objectID: 'goods-001',
+                  item_distribution_id: 'dist-goods',
+                  name: 'Not a Look',
+                  status: 'public',
+                  is_searchable: true,
+                  sale_period_state: {
+                    active: true,
+                  },
+                  item: {
+                    kind: 'goods',
                   },
                 },
                 {
-                  name: 'projects/popopo-prod/databases/(default)/documents/items/look-hidden',
-                  fields: {
-                    id: { stringValue: 'look-hidden' },
-                    kind: { stringValue: 'look' },
-                    name: { stringValue: 'Hidden Look' },
-                    status: { stringValue: 'private' },
+                  objectID: 'look-hidden',
+                  item_distribution_id: 'dist-hidden',
+                  name: 'Hidden Look',
+                  status: 'private',
+                  is_searchable: true,
+                  sale_period_state: {
+                    active: true,
                   },
-                },
-              ],
-            }),
-            {
-              status: 200,
-              headers: {
-                'content-type': 'application/json',
-              },
-            },
-          )
-        }
-
-        if (
-          url ===
-          'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/items/look-001/item-distributions?key=api-key&pageSize=100&orderBy=start_at+desc'
-        ) {
-          return new Response(
-            JSON.stringify({
-              documents: [
-                {
-                  name: 'projects/popopo-prod/databases/(default)/documents/items/look-001/item-distributions/dist-active',
-                  fields: {
-                    id: { stringValue: 'dist-active' },
-                    status: { stringValue: 'public' },
-                    start_at: { integerValue: '1' },
-                    end_at: { integerValue: '4102444800' },
-                    sale_period_state: {
-                      mapValue: {
-                        fields: {
-                          active: { booleanValue: true },
-                        },
-                      },
-                    },
+                  item: {
+                    kind: 'look',
                   },
                 },
               ],
-            }),
-            {
-              status: 200,
-              headers: {
-                'content-type': 'application/json',
-              },
-            },
-          )
-        }
-
-        if (
-          url ===
-          'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/items/look-002/item-distributions?key=api-key&pageSize=100&orderBy=start_at+desc'
-        ) {
-          return new Response(
-            JSON.stringify({
-              documents: [
-                {
-                  name: 'projects/popopo-prod/databases/(default)/documents/items/look-002/item-distributions/dist-expired',
-                  fields: {
-                    id: { stringValue: 'dist-expired' },
-                    status: { stringValue: 'public' },
-                    start_at: { integerValue: '1' },
-                    end_at: { integerValue: '2' },
-                    sale_period_state: {
-                      mapValue: {
-                        fields: {
-                          active: { booleanValue: true },
-                        },
-                      },
-                    },
-                  },
-                },
-              ],
+              nbPages: 1,
             }),
             {
               status: 200,
@@ -613,27 +624,16 @@ describe('SkinsClient', () => {
 
         throw new Error(`Unexpected URL: ${url}`)
       },
-      session: {
-        firebaseIdToken: 'firebase-token',
-      },
-      firebase: {
-        apiKey: 'api-key',
-        projectId: 'popopo-prod',
-      },
     })
 
     const result = await client.skins.listStore()
 
     expect(seenUrls).toEqual([
-      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/items?key=api-key&pageSize=100&orderBy=default_price+asc',
-      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/items/look-001/item-distributions?key=api-key&pageSize=100&orderBy=start_at+desc',
-      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/items/look-002/item-distributions?key=api-key&pageSize=100&orderBy=start_at+desc',
+      'https://59s66kmoyi-dsn.algolia.net/1/indexes/items--desc%3Arecommend_priority/query',
     ])
-    expect(seenAuthorizations).toEqual([
-      'Bearer firebase-token',
-      'Bearer firebase-token',
-      'Bearer firebase-token',
-    ])
+    expect(seenAlgoliaApplicationIds).toEqual(['59S66KMOYI'])
+    expect(seenAlgoliaApiKeys).toEqual(['d5999d3f32c467d3798f165d3fedc2e1'])
+    expect(seenBodies).toEqual([JSON.stringify({ query: '', hitsPerPage: 100, page: 0 })])
     expect(result.skins).toEqual([
       expect.objectContaining({
         id: 'look-001',
@@ -1103,6 +1103,341 @@ describe('LivesClient', () => {
     expect(calls[1]?.url).toBe(
       'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents:commit?key=api-key',
     )
+  })
+
+  test('reads live viewers from the Firestore live-viewers collection', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-viewers/user-123',
+                fields: {
+                  space_key: { stringValue: 'space-123' },
+                  live_id: { stringValue: 'live-456' },
+                  user_id: { stringValue: 'user-123' },
+                  new_user_live_comment_id: { nullValue: null },
+                  created_at: { timestampValue: '2026-03-19T04:50:22.029Z' },
+                  updated_at: { timestampValue: '2026-03-19T06:53:22.068Z' },
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        )
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.listViewers({
+      options: {
+        limit: 10,
+        orderBy: 'updated_at desc',
+      },
+    })
+
+    expect(seenUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-viewers?key=api-key&pageSize=10&orderBy=updated_at+desc',
+    )
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(result.viewers).toEqual([
+      expect.objectContaining({
+        id: 'user-123',
+        spaceKey: 'space-123',
+        liveId: 'live-456',
+        userId: 'user-123',
+        newUserLiveCommentId: null,
+        createdAt: Date.parse('2026-03-19T04:50:22.029Z'),
+        updatedAt: Date.parse('2026-03-19T06:53:22.068Z'),
+      }),
+    ])
+  })
+
+  test('reads live view logs from the Firestore live-view-logs collection', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-viewers/user-123/live-view-logs/log-1',
+                fields: {
+                  space_key: { stringValue: 'space-123' },
+                  live_id: { stringValue: 'live-456' },
+                  user_id: { stringValue: 'user-123' },
+                  created_at: { timestampValue: '2026-03-19T06:53:22.117Z' },
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        )
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+        userId: 'user-123',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.listViewLogs({
+      options: {
+        limit: 20,
+        orderBy: 'created_at desc',
+      },
+    })
+
+    expect(seenUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-viewers/user-123/live-view-logs?key=api-key&pageSize=20&orderBy=created_at+desc',
+    )
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(result.logs).toEqual([
+      expect.objectContaining({
+        id: 'log-1',
+        spaceKey: 'space-123',
+        liveId: 'live-456',
+        userId: 'user-123',
+        createdAt: Date.parse('2026-03-19T06:53:22.117Z'),
+      }),
+    ])
+  })
+
+  test('reads a live viewer document from Firestore', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+
+        return new Response(
+          JSON.stringify({
+            name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-viewers/user-123',
+            fields: {
+              space_key: { stringValue: 'space-123' },
+              live_id: { stringValue: 'live-456' },
+              user_id: { stringValue: 'user-123' },
+              new_user_live_comment_id: { nullValue: null },
+              created_at: { timestampValue: '2026-03-19T04:50:22.029Z' },
+              updated_at: { timestampValue: '2026-03-19T06:53:22.068Z' },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        )
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+        userId: 'user-123',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.getViewer()
+
+    expect(seenUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-viewers/user-123?key=api-key',
+    )
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(result).toMatchObject({
+      id: 'user-123',
+      spaceKey: 'space-123',
+      liveId: 'live-456',
+      userId: 'user-123',
+      newUserLiveCommentId: null,
+      createdAt: Date.parse('2026-03-19T04:50:22.029Z'),
+      updatedAt: Date.parse('2026-03-19T06:53:22.068Z'),
+    })
+  })
+
+  test('reads a live power summary document from Firestore', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+
+        return new Response(
+          JSON.stringify({
+            name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-power-summaries/user-123',
+            fields: {
+              space_key: { stringValue: 'space-123' },
+              live_id: { stringValue: 'live-456' },
+              user_id: { stringValue: 'user-123' },
+              power: { integerValue: '700' },
+              created_at: { integerValue: '100' },
+              updated_at: { integerValue: '200' },
+              user: {
+                mapValue: {
+                  fields: {
+                    id: { stringValue: 'user-123' },
+                    name: { stringValue: 'alice' },
+                  },
+                },
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        )
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+        userId: 'user-123',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.getPowerSummary()
+
+    expect(seenUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-power-summaries/user-123?key=api-key',
+    )
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(result).toMatchObject({
+      id: 'user-123',
+      spaceKey: 'space-123',
+      liveId: 'live-456',
+      userId: 'user-123',
+      power: 700,
+      createdAt: 100,
+      updatedAt: 200,
+      user: {
+        id: 'user-123',
+        name: 'alice',
+      },
+    })
+  })
+
+  test('lists live power summaries from Firestore', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+
+        return new Response(
+          JSON.stringify({
+            documents: [
+              {
+                name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-power-summaries/user-1',
+                fields: {
+                  user_id: { stringValue: 'user-1' },
+                  power: { integerValue: '1200' },
+                },
+              },
+              {
+                name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-power-summaries/user-2',
+                fields: {
+                  user_id: { stringValue: 'user-2' },
+                  power: { integerValue: '300' },
+                },
+              },
+            ],
+            nextPageToken: 'next-token',
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        )
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.listPowerSummaries({
+      options: {
+        limit: 50,
+        orderBy: 'power desc',
+      },
+    })
+
+    expect(seenUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-power-summaries?key=api-key&pageSize=50&orderBy=power+desc',
+    )
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(result.nextPageToken).toBe('next-token')
+    expect(result.summaries).toEqual([
+      expect.objectContaining({
+        id: 'user-1',
+        userId: 'user-1',
+        power: 1200,
+      }),
+      expect.objectContaining({
+        id: 'user-2',
+        userId: 'user-2',
+        power: 300,
+      }),
+    ])
   })
 
   test('reads public live power items from the Firestore powers collection', async () => {

@@ -36,12 +36,21 @@ export type LiveAudioPcmStreamOptions = {
   format?: 's16le' | 'f32le'
 }
 
+export type LiveAudioPublisherHealth = {
+  healthy: boolean
+  connectionState?: string
+  publishState?: string
+  lastProblem?: string
+}
+
 export type LiveAudioPublisherSession = {
   readonly spaceKey: string
   readonly browser: BrowserName
   readonly browserPath: string
   readonly sdkAppId: number
   readonly userId: string
+  readonly credentialIssuedAt?: number
+  readonly credentialExpiresAt?: number
   publishPcmStream: (
     stream: ReadableStream<Uint8Array>,
     options: LiveAudioPcmStreamOptions,
@@ -53,6 +62,8 @@ export type LiveAudioPublisherSession = {
     stream: ReadableStream<Uint8Array>,
     options: LiveAudioPcmStreamOptions,
   ) => Promise<void>
+  isHealthy: () => boolean
+  getHealth: () => LiveAudioPublisherHealth
   close: () => Promise<Record<string, unknown>>
 }
 
@@ -88,8 +99,12 @@ type PublisherSessionConfig = {
   userId: string
   userSig: string
   privateMapKey: string
+  credentialIssuedAt?: number
+  credentialExpiresAt?: number
   trtcVendorRoot: string
 }
+
+const SPACE_CONNECTION_HEARTBEAT_INTERVAL_MS = 5_000
 
 type PublisherRunnerMessage =
   | {
@@ -155,6 +170,10 @@ export async function createLiveAudioPublisher(
   let requestCounter = 0
   let activePublish = false
   let closed = false
+  let connectionState: string | undefined
+  let publishState: string | undefined
+  let unhealthyReason: string | undefined
+  let stopSpaceConnectionHeartbeat: (() => void) | undefined
   let resolveReady: (value: Record<string, unknown>) => void = () => undefined
   let rejectReady: (reason?: unknown) => void = () => undefined
   const readyPromise = new Promise<Record<string, unknown>>((resolvePromise, rejectPromise) => {
@@ -170,6 +189,8 @@ export async function createLiveAudioPublisher(
   >()
 
   const failAll = (error: Error) => {
+    stopSpaceConnectionHeartbeat?.()
+    stopSpaceConnectionHeartbeat = undefined
     if (!closed) {
       closed = true
     }
@@ -178,6 +199,7 @@ export async function createLiveAudioPublisher(
       entry.reject(error)
     }
     pending.clear()
+    unhealthyReason = error.message
   }
 
   const handleMessage = (message: PublisherRunnerMessage) => {
@@ -199,7 +221,58 @@ export async function createLiveAudioPublisher(
       } else {
         pendingRequest.reject(new Error(message.error))
       }
+
+      return
     }
+
+    if (message.type === 'event' && message.event === 'trtc') {
+      updateHealthFromTrtcEvent(message.data)
+    }
+  }
+
+  const updateHealthFromTrtcEvent = (payload: Record<string, unknown> | undefined) => {
+    const eventType = optionalString(payload?.type)
+
+    if (!eventType) {
+      return
+    }
+
+    if (eventType === 'connection-state') {
+      connectionState =
+        optionalString(payload?.state) ??
+        optionalString(payload?.connectionState) ??
+        optionalString(payload?.status)
+    }
+
+    if (eventType === 'publish-state') {
+      publishState =
+        optionalString(payload?.state) ??
+        optionalString(payload?.publishState) ??
+        optionalString(payload?.status)
+    }
+
+    if (eventType === 'error') {
+      const code = optionalString(payload?.code) ?? optionalString(payload?.value)
+      unhealthyReason = code ? `trtc-error:${code}` : 'trtc-error'
+      return
+    }
+
+    if (eventType === 'audio-context-state') {
+      const state = optionalString(payload?.state)
+      unhealthyReason = deriveUnhealthyAudioContextReason(state)
+      return
+    }
+
+    if (eventType === 'track-state') {
+      const kind = optionalString(payload?.kind) ?? 'track'
+      const state = optionalString(payload?.state)
+      unhealthyReason = state ? `${kind}-state:${state}` : `${kind}-state`
+      return
+    }
+
+    unhealthyReason =
+      deriveUnhealthyConnectionReason(connectionState) ??
+      deriveUnhealthyPublishReason(publishState)
   }
 
   child.stdout.on('data', (chunk: Buffer | string) => {
@@ -283,6 +356,7 @@ export async function createLiveAudioPublisher(
     ...config,
   })
   await readyPromise
+  stopSpaceConnectionHeartbeat = startSpaceConnectionHeartbeat(client, config.spaceKey)
 
   const publishPcmStream = async (
     stream: ReadableStream<Uint8Array>,
@@ -342,10 +416,14 @@ export async function createLiveAudioPublisher(
     try {
       const result = await request('close')
       closed = true
+      stopSpaceConnectionHeartbeat?.()
+      stopSpaceConnectionHeartbeat = undefined
       child.stdin.end()
       await once(child, 'close').catch(() => undefined)
       return result
     } finally {
+      stopSpaceConnectionHeartbeat?.()
+      stopSpaceConnectionHeartbeat = undefined
       if (child.exitCode === null && child.signalCode === null) {
         child.kill()
       }
@@ -358,8 +436,17 @@ export async function createLiveAudioPublisher(
     browserPath: config.browserPath,
     sdkAppId: config.sdkAppId,
     userId: config.userId,
+    credentialIssuedAt: config.credentialIssuedAt,
+    credentialExpiresAt: config.credentialExpiresAt,
     publishPcmStream,
     publishStream: publishPcmStream,
+    isHealthy: () => !closed && !unhealthyReason,
+    getHealth: () => ({
+      healthy: !closed && !unhealthyReason,
+      connectionState,
+      publishState,
+      lastProblem: unhealthyReason,
+    }),
     close,
   }
 }
@@ -448,8 +535,21 @@ async function resolvePublisherSessionConfig(
   const userSig = optionalString(rawConnectionInfo.userSig)
   const privateMapKey = optionalString(rawConnectionInfo.privateMapKey)
   const decodedUserSig = decodeTencentCompactToken(userSig)
+  const decodedPrivateMapKey = decodeTencentCompactToken(privateMapKey)
   const sdkAppId = toFiniteNumber(decodedUserSig?.['TLS.sdkappid']) ?? DEFAULT_TENCENT_SDK_APP_ID
   const userId = optionalString(decodedUserSig?.['TLS.identifier']) ?? session.userId
+  const credentialIssuedAtSeconds =
+    toFiniteNumber(decodedUserSig?.['TLS.time']) ??
+    toFiniteNumber(decodedPrivateMapKey?.['TLS.time'])
+  const credentialExpiresInSeconds =
+    toFiniteNumber(decodedUserSig?.['TLS.expire']) ??
+    toFiniteNumber(decodedPrivateMapKey?.['TLS.expire'])
+  const credentialIssuedAt =
+    credentialIssuedAtSeconds !== undefined ? credentialIssuedAtSeconds * 1000 : undefined
+  const credentialExpiresAt =
+    credentialIssuedAtSeconds !== undefined && credentialExpiresInSeconds !== undefined
+      ? (credentialIssuedAtSeconds + credentialExpiresInSeconds) * 1000
+      : undefined
 
   if (!userSig || !privateMapKey || !userId) {
     throw new Error('Space connection info does not contain usable TRTC credentials.')
@@ -468,6 +568,8 @@ async function resolvePublisherSessionConfig(
     userId,
     userSig,
     privateMapKey,
+    credentialIssuedAt,
+    credentialExpiresAt,
     trtcVendorRoot,
   }
 }
@@ -749,6 +851,98 @@ function optionalString(value: unknown): string | undefined {
 function toFiniteNumber(value: unknown): number | undefined {
   const numberValue = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(numberValue) ? numberValue : undefined
+}
+
+function deriveUnhealthyConnectionReason(state: string | undefined): string | undefined {
+  if (!state) {
+    return undefined
+  }
+
+  switch (state.toLowerCase()) {
+    case 'disconnected':
+    case 'failed':
+    case 'closed':
+      return `connection-state:${state}`
+    default:
+      return undefined
+  }
+}
+
+function deriveUnhealthyPublishReason(state: string | undefined): string | undefined {
+  if (!state) {
+    return undefined
+  }
+
+  switch (state.toLowerCase()) {
+    case 'failed':
+    case 'stopped':
+      return `publish-state:${state}`
+    default:
+      return undefined
+  }
+}
+
+function deriveUnhealthyAudioContextReason(state: string | undefined): string | undefined {
+  if (!state) {
+    return undefined
+  }
+
+  switch (state.toLowerCase()) {
+    case 'suspended':
+    case 'closed':
+      return `audio-context-state:${state}`
+    default:
+      return undefined
+  }
+}
+
+function startSpaceConnectionHeartbeat(client: PopopoClient, spaceKey: string): () => void {
+  let stopped = false
+  let inFlight = false
+
+  const tick = async () => {
+    if (stopped || inFlight) {
+      return
+    }
+
+    inFlight = true
+
+    try {
+      await touchSpaceConnection(client, spaceKey)
+    } catch {
+      // The main session health is tracked via TRTC events. Heartbeat retries stay best-effort.
+    } finally {
+      inFlight = false
+    }
+  }
+
+  const timer = setInterval(() => {
+    void tick()
+  }, SPACE_CONNECTION_HEARTBEAT_INTERVAL_MS)
+
+  void tick()
+
+  return () => {
+    stopped = true
+    clearInterval(timer)
+  }
+}
+
+async function touchSpaceConnection(client: PopopoClient, spaceKey: string): Promise<void> {
+  try {
+    await client.spaces.touchConnection(spaceKey)
+  } catch (error) {
+    if (!shouldReconnectSpaceConnection(error)) {
+      throw error
+    }
+
+    await ensureSpaceConnected(client, spaceKey)
+    await client.spaces.touchConnection(spaceKey)
+  }
+}
+
+function shouldReconnectSpaceConnection(error: unknown): boolean {
+  return error instanceof PopopoApiError && (error.status === 404 || error.status === 409)
 }
 
 function sleep(ms: number): Promise<void> {

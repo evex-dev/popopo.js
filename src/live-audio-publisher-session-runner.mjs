@@ -163,7 +163,9 @@ async function createPublisherSession(input) {
   const logs = []
 
   page.on('console', (message) => {
-    logs.push(message.text())
+    const text = message.text()
+    logs.push(text)
+    forwardTrtcEvent(text)
   })
   page.on('pageerror', (error) => {
     logs.push(`pageerror:${error instanceof Error ? error.message : String(error)}`)
@@ -194,6 +196,13 @@ async function createPublisherSession(input) {
       gainNode.gain.value = gain
       const destination = audioContext.createMediaStreamDestination()
       gainNode.connect(destination)
+      const keepAliveGain = audioContext.createGain()
+      keepAliveGain.gain.value = 0.000001
+      const keepAliveSource = audioContext.createConstantSource()
+      keepAliveSource.offset.value = 1
+      keepAliveSource.connect(keepAliveGain)
+      keepAliveGain.connect(destination)
+      keepAliveSource.start()
 
       const pushEvent = (type, payload) => {
         const entry = {
@@ -222,11 +231,25 @@ async function createPublisherSession(input) {
         pushEvent('publish-state', asRecord(args[0]))
       })
 
+      audioContext.onstatechange = () => {
+        pushEvent('audio-context-state', { state: audioContext.state })
+      }
+
       const customAudioTrack = destination.stream.getAudioTracks()[0]
 
       if (!customAudioTrack) {
         throw new Error('Failed to create a custom audio track.')
       }
+
+      customAudioTrack.addEventListener('ended', () => {
+        pushEvent('track-state', { kind: 'audio', state: 'ended' })
+      })
+
+      const keepAudioContextAlive = globalThis.setInterval(() => {
+        if (audioContext.state !== 'running') {
+          void audioContext.resume().catch(() => undefined)
+        }
+      }, 5000)
 
       const publishStartedFromEvent = new Promise((resolvePromise, rejectPromise) => {
         const timeout = globalThis.setTimeout(() => {
@@ -362,6 +385,8 @@ async function createPublisherSession(input) {
           }
         },
         async stop() {
+          globalThis.clearInterval(keepAudioContextAlive)
+
           for (const sourceNode of activeSources) {
             try {
               sourceNode.stop()
@@ -373,6 +398,12 @@ async function createPublisherSession(input) {
 
           try {
             customAudioTrack.stop()
+          } catch {
+            // noop
+          }
+
+          try {
+            keepAliveSource.stop()
           } catch {
             // noop
           }
@@ -498,4 +529,21 @@ function writeError(requestId, error) {
     ok: false,
     error: error instanceof Error ? error.message : String(error),
   })
+}
+
+function forwardTrtcEvent(text) {
+  if (!text.startsWith('uset-trtc:')) {
+    return
+  }
+
+  try {
+    const payload = JSON.parse(text.slice('uset-trtc:'.length))
+    writeMessage({
+      type: 'event',
+      event: 'trtc',
+      data: payload,
+    })
+  } catch {
+    // ignore malformed console payloads
+  }
 }
