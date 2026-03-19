@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
 import { basename, delimiter, resolve } from 'node:path'
 import { inflateSync } from 'node:zlib'
@@ -18,6 +19,41 @@ export type LiveAudioPublishOptions = {
   gain?: number
   durationMs?: number
   publishTimeoutMs?: number
+}
+
+export type LiveAudioPublisherOptions = {
+  spaceKey?: string
+  browser?: 'auto' | 'chromium' | 'firefox'
+  browserPath?: string
+  headless?: boolean
+  gain?: number
+  publishTimeoutMs?: number
+}
+
+export type LiveAudioPcmStreamOptions = {
+  sampleRate: number
+  channelCount?: number
+  format?: 's16le' | 'f32le'
+}
+
+export type LiveAudioPublisherSession = {
+  readonly spaceKey: string
+  readonly browser: BrowserName
+  readonly browserPath: string
+  readonly sdkAppId: number
+  readonly userId: string
+  publishPcmStream: (
+    stream: ReadableStream<Uint8Array>,
+    options: LiveAudioPcmStreamOptions,
+  ) => Promise<void>
+  /**
+   * @deprecated Use publishPcmStream(stream, options) instead.
+   */
+  publishStream: (
+    stream: ReadableStream<Uint8Array>,
+    options: LiveAudioPcmStreamOptions,
+  ) => Promise<void>
+  close: () => Promise<Record<string, unknown>>
 }
 
 type PublisherSourceConfig =
@@ -40,60 +76,292 @@ type BrowserExecutable = {
   name: BrowserName
   path: string
 }
+
+type PublisherSessionConfig = {
+  spaceKey: string
+  browser: BrowserName
+  browserPath: string
+  headless: boolean
+  gain: number
+  publishTimeoutMs: number
+  sdkAppId: number
+  userId: string
+  userSig: string
+  privateMapKey: string
+  trtcVendorRoot: string
+}
+
+type PublisherRunnerMessage =
+  | {
+      type: 'ready'
+      data: Record<string, unknown>
+    }
+  | {
+      type: 'response'
+      requestId: string
+      ok: true
+      data?: Record<string, unknown>
+    }
+  | {
+      type: 'response'
+      requestId: string
+      ok: false
+      error: string
+    }
+  | {
+      type: 'event'
+      event: string
+      data?: Record<string, unknown>
+    }
+
 export async function publishLiveAudio(
   client: PopopoClient,
   options: LiveAudioPublishOptions,
 ): Promise<Record<string, unknown>> {
-  const session = client.getSession()
-  const spaceKey = options.spaceKey ?? session.currentSpaceKey
-
-  if (!spaceKey) {
-    throw new Error('No target space is available. Pass --space-key or join a space first.')
-  }
-
-  const trtcVendorRoot = resolve(import.meta.dir, '../node_modules/trtc-sdk-v5')
-  const trtcScriptPath = resolve(trtcVendorRoot, 'trtc.js')
-
-  if (!existsSync(trtcScriptPath)) {
-    throw new Error(
-      'Optional dependency `trtc-sdk-v5` is not installed. Run `bun install` in `client_lib`.',
-    )
-  }
-
-  await ensureSpaceConnected(client, spaceKey)
-  const rawConnectionInfo = await client.spaces.connectionInfo<Record<string, unknown>>(
-    spaceKey,
-    {},
-  )
-  const userSig = optionalString(rawConnectionInfo.userSig)
-  const privateMapKey = optionalString(rawConnectionInfo.privateMapKey)
-  const decodedUserSig = decodeTencentCompactToken(userSig)
-  const sdkAppId = toFiniteNumber(decodedUserSig?.['TLS.sdkappid']) ?? DEFAULT_TENCENT_SDK_APP_ID
-  const userId = optionalString(decodedUserSig?.['TLS.identifier']) ?? session.userId
-
-  if (!userSig || !privateMapKey || !userId) {
-    throw new Error('Space connection info does not contain usable TRTC credentials.')
-  }
-
-  const browserExecutable = resolveBrowserExecutable(options)
-  const headless = options.headless ?? true
+  const config = await resolvePublisherSessionConfig(client, options)
   const source = await resolvePublisherSource(options)
-  const publishTimeoutMs = options.publishTimeoutMs ?? 15000
   const durationMs = options.durationMs
+
   return runPublisherInNode({
-    browser: browserExecutable.name,
-    browserPath: browserExecutable.path,
-    headless,
+    browser: config.browser,
+    browserPath: config.browserPath,
+    headless: config.headless,
     source,
-    publishTimeoutMs,
+    publishTimeoutMs: config.publishTimeoutMs,
     durationMs: durationMs ?? null,
-    sdkAppId,
-    userId,
-    userSig,
-    privateMapKey,
-    spaceKey,
-    trtcVendorRoot,
+    sdkAppId: config.sdkAppId,
+    userId: config.userId,
+    userSig: config.userSig,
+    privateMapKey: config.privateMapKey,
+    spaceKey: config.spaceKey,
+    trtcVendorRoot: config.trtcVendorRoot,
   })
+}
+
+export async function createLiveAudioPublisher(
+  client: PopopoClient,
+  options: LiveAudioPublisherOptions = {},
+): Promise<LiveAudioPublisherSession> {
+  const config = await resolvePublisherSessionConfig(client, options)
+  const runnerPath = fileURLToPath(
+    new URL('./live-audio-publisher-session-runner.mjs', import.meta.url),
+  )
+  const child = spawn('node', [runnerPath], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  let stdoutBuffer = ''
+  let stderr = ''
+  let requestCounter = 0
+  let activePublish = false
+  let closed = false
+  let resolveReady: (value: Record<string, unknown>) => void = () => undefined
+  let rejectReady: (reason?: unknown) => void = () => undefined
+  const readyPromise = new Promise<Record<string, unknown>>((resolvePromise, rejectPromise) => {
+    resolveReady = resolvePromise
+    rejectReady = rejectPromise
+  })
+  const pending = new Map<
+    string,
+    {
+      resolve: (value: Record<string, unknown>) => void
+      reject: (reason?: unknown) => void
+    }
+  >()
+
+  const failAll = (error: Error) => {
+    if (!closed) {
+      closed = true
+    }
+    rejectReady(error)
+    for (const entry of pending.values()) {
+      entry.reject(error)
+    }
+    pending.clear()
+  }
+
+  const handleMessage = (message: PublisherRunnerMessage) => {
+    if (message.type === 'ready') {
+      resolveReady(message.data)
+      return
+    }
+
+    if (message.type === 'response') {
+      const pendingRequest = pending.get(message.requestId)
+      if (!pendingRequest) {
+        return
+      }
+
+      pending.delete(message.requestId)
+
+      if (message.ok) {
+        pendingRequest.resolve(message.data ?? {})
+      } else {
+        pendingRequest.reject(new Error(message.error))
+      }
+    }
+  }
+
+  child.stdout.on('data', (chunk: Buffer | string) => {
+    stdoutBuffer += chunk.toString()
+
+    while (true) {
+      const newlineIndex = stdoutBuffer.indexOf('\n')
+      if (newlineIndex === -1) {
+        break
+      }
+
+      const line = stdoutBuffer.slice(0, newlineIndex).trim()
+      stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1)
+
+      if (!line) {
+        continue
+      }
+
+      try {
+        handleMessage(JSON.parse(line) as PublisherRunnerMessage)
+      } catch (error) {
+        failAll(
+          new Error(
+            `Failed to parse the live audio publisher response: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        )
+      }
+    }
+  })
+  child.stderr.on('data', (chunk: Buffer | string) => {
+    stderr += chunk.toString()
+  })
+  child.on('error', (error) => {
+    failAll(new Error(`Failed to launch the Node publish helper: ${error.message}`))
+  })
+  child.on('close', (code) => {
+    if (closed && code === 0) {
+      return
+    }
+
+    failAll(
+      new Error(stderr.trim() || `The Node publish helper exited unexpectedly with code ${code}.`),
+    )
+  })
+
+  const sendCommand = async (payload: Record<string, unknown>): Promise<void> => {
+    if (closed) {
+      throw new Error('The live audio publisher session is already closed.')
+    }
+
+    if (!child.stdin.write(`${JSON.stringify(payload)}\n`)) {
+      await once(child.stdin, 'drain')
+    }
+  }
+
+  const request = async (
+    type: string,
+    data: Record<string, unknown> = {},
+  ): Promise<Record<string, unknown>> => {
+    const requestId = `req-${++requestCounter}`
+    const promise = new Promise<Record<string, unknown>>((resolvePromise, rejectPromise) => {
+      pending.set(requestId, {
+        resolve: resolvePromise,
+        reject: rejectPromise,
+      })
+    })
+
+    await sendCommand({
+      type,
+      requestId,
+      ...data,
+    })
+
+    return promise
+  }
+
+  await sendCommand({
+    type: 'init',
+    ...config,
+  })
+  await readyPromise
+
+  const publishPcmStream = async (
+    stream: ReadableStream<Uint8Array>,
+    streamOptions: LiveAudioPcmStreamOptions,
+  ): Promise<void> => {
+    if (activePublish) {
+      throw new Error('Concurrent publishPcmStream calls are not supported.')
+    }
+
+    activePublish = true
+
+    try {
+      await request('pcm-begin', {
+        format: streamOptions.format ?? 's16le',
+        sampleRate: streamOptions.sampleRate,
+        channelCount: streamOptions.channelCount ?? 1,
+      })
+
+      const reader = stream.getReader()
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) {
+            break
+          }
+
+          if (!value || value.byteLength === 0) {
+            continue
+          }
+
+          await sendCommand({
+            type: 'pcm-chunk',
+            payloadBase64: Buffer.from(value).toString('base64'),
+          })
+        }
+      } finally {
+        reader.releaseLock()
+      }
+
+      const endResult = await request('pcm-end')
+      const queuedDurationMs = toFiniteNumber(endResult.queuedDurationMs)
+
+      if (queuedDurationMs && queuedDurationMs > 0) {
+        await sleep(queuedDurationMs)
+      }
+    } finally {
+      activePublish = false
+    }
+  }
+
+  const close = async (): Promise<Record<string, unknown>> => {
+    if (closed) {
+      return { ok: true, alreadyClosed: true }
+    }
+
+    try {
+      const result = await request('close')
+      closed = true
+      child.stdin.end()
+      await once(child, 'close').catch(() => undefined)
+      return result
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill()
+      }
+    }
+  }
+
+  return {
+    spaceKey: config.spaceKey,
+    browser: config.browser,
+    browserPath: config.browserPath,
+    sdkAppId: config.sdkAppId,
+    userId: config.userId,
+    publishPcmStream,
+    publishStream: publishPcmStream,
+    close,
+  }
 }
 
 async function ensureSpaceConnected(client: PopopoClient, spaceKey: string): Promise<void> {
@@ -149,6 +417,58 @@ async function resolvePublisherSource(
     kind: 'tone',
     toneHz: options.toneHz ?? 440,
     gain,
+  }
+}
+
+async function resolvePublisherSessionConfig(
+  client: PopopoClient,
+  options: LiveAudioPublisherOptions,
+): Promise<PublisherSessionConfig> {
+  const session = client.getSession()
+  const spaceKey = options.spaceKey ?? session.currentSpaceKey
+
+  if (!spaceKey) {
+    throw new Error('No target space is available. Pass --space-key or join a space first.')
+  }
+
+  const trtcVendorRoot = resolve(import.meta.dir, '../node_modules/trtc-sdk-v5')
+  const trtcScriptPath = resolve(trtcVendorRoot, 'trtc.js')
+
+  if (!existsSync(trtcScriptPath)) {
+    throw new Error(
+      'Optional dependency `trtc-sdk-v5` is not installed. Run `bun install` in `client_lib`.',
+    )
+  }
+
+  await ensureSpaceConnected(client, spaceKey)
+  const rawConnectionInfo = await client.spaces.connectionInfo<Record<string, unknown>>(
+    spaceKey,
+    {},
+  )
+  const userSig = optionalString(rawConnectionInfo.userSig)
+  const privateMapKey = optionalString(rawConnectionInfo.privateMapKey)
+  const decodedUserSig = decodeTencentCompactToken(userSig)
+  const sdkAppId = toFiniteNumber(decodedUserSig?.['TLS.sdkappid']) ?? DEFAULT_TENCENT_SDK_APP_ID
+  const userId = optionalString(decodedUserSig?.['TLS.identifier']) ?? session.userId
+
+  if (!userSig || !privateMapKey || !userId) {
+    throw new Error('Space connection info does not contain usable TRTC credentials.')
+  }
+
+  const browserExecutable = resolveBrowserExecutable(options)
+
+  return {
+    spaceKey,
+    browser: browserExecutable.name,
+    browserPath: browserExecutable.path,
+    headless: options.headless ?? true,
+    gain: options.gain ?? 1,
+    publishTimeoutMs: options.publishTimeoutMs ?? 15000,
+    sdkAppId,
+    userId,
+    userSig,
+    privateMapKey,
+    trtcVendorRoot,
   }
 }
 

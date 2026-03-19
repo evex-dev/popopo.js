@@ -450,6 +450,22 @@ async function runLivesSubcommand(
         options: buildLiveCommentListOptions(options),
         request: buildHomeDisplaySpacesRequest(options),
       })
+    case 'viewer-create':
+      return client.lives.createViewer({
+        ...buildLiveContextInput(options),
+        userId: getSingleOption(options, 'user-id'),
+        request: buildHomeDisplaySpacesRequest(options),
+        query: parseQueryOptions(options),
+      })
+    case 'viewer-heartbeat':
+      return client.lives.heartbeatViewer({
+        ...buildLiveContextInput(options),
+        userId: getSingleOption(options, 'user-id'),
+        request: buildHomeDisplaySpacesRequest(options),
+        query: parseQueryOptions(options),
+      })
+    case 'viewer-watch':
+      return runLiveViewerHeartbeat(client, options)
     case 'receive':
     case 'receive-info':
       return client.lives.getReceiveInfo({
@@ -595,6 +611,49 @@ async function runLiveCommentWatch(
     printedCount,
     seenCount: seenIds.size,
     lastSeenId,
+  }
+}
+
+async function runLiveViewerHeartbeat(
+  client: PopopoClient,
+  options: Map<string, string[]>,
+): Promise<unknown> {
+  const intervalMs = parseOptionalNumberOption(options, 'interval-ms') ?? 60_000
+  const timeoutMs = parseOptionalNumberOption(options, 'timeout-ms')
+  const startedAt = Date.now()
+  const heartbeat = await client.lives.startViewerHeartbeat({
+    ...buildLiveContextInput(options),
+    userId: getSingleOption(options, 'user-id'),
+    request: buildHomeDisplaySpacesRequest(options),
+    query: parseQueryOptions(options),
+    intervalMs,
+  })
+
+  try {
+    if (timeoutMs !== undefined) {
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, timeoutMs))
+    } else {
+      await new Promise<void>((resolvePromise) => {
+        const cleanup = () => {
+          process.off('SIGINT', cleanup)
+          process.off('SIGTERM', cleanup)
+          resolvePromise()
+        }
+
+        process.on('SIGINT', cleanup)
+        process.on('SIGTERM', cleanup)
+      })
+    }
+  } finally {
+    heartbeat.stop()
+  }
+
+  return {
+    ok: true,
+    startedAt: new Date(startedAt).toISOString(),
+    stoppedAt: new Date().toISOString(),
+    timeoutMs,
+    ...heartbeat,
   }
 }
 
@@ -1815,6 +1874,9 @@ function printHelp(): void {
       '  popopo lives send-power --space-key <space-key> [--live-id <live-id>] --power-id <id|name>',
       '  popopo lives comment --space-key <space-key> [--live-id <live-id>] --text <text>',
       '  popopo lives comments --space-key <space-key> [--live-id <live-id>] [--limit <n>] [--order-by <field dir>]',
+      '  popopo lives viewer-create --space-key <space-key> [--live-id <live-id>] [--user-id <id>]',
+      '  popopo lives viewer-heartbeat --space-key <space-key> [--live-id <live-id>] [--user-id <id>]',
+      '  popopo lives viewer-watch --space-key <space-key> [--live-id <live-id>] [--user-id <id>] [--interval-ms <ms>] [--timeout-ms <ms>]',
       '  popopo lives selection-create --space-key <space-key> [--live-id <live-id>] --kind <message|talk> [--title <value>]',
       '  popopo lives selections --space-key <space-key> [--live-id <live-id>] [--limit <n>] [--order-by <field dir>]',
       '  popopo lives selection-get --space-key <space-key> [--live-id <live-id>] --selection-id <id>',
@@ -1902,6 +1964,7 @@ function printHelp(): void {
       '  --app <value>',
       '  --space-key <value>',
       '  --live-id <value>',
+      '  --user-id <value>',
       '  --inventory-id <value>',
       '  --skin-id <value>        Alias of --inventory-id for `popopo skins change`',
       '  --include-inactive       Include skins that are not currently on sale',
@@ -1925,7 +1988,7 @@ function printHelp(): void {
       '  --publish-timeout-ms <ms>   default: 15000 for `popopo lives publish-audio`',
       '  --order-by <field dir>',
       '  --page-token <value>',
-      '  --interval-ms <ms>           default: 3000 for `popopo lives watch`',
+      '  --interval-ms <ms>           default: 3000 for `popopo lives watch`, 60000 for `popopo lives viewer-watch`',
       '  --temporary-proof <value>',
       '  --tenant-id <value>',
       '  --no-auto-create',

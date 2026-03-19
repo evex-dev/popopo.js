@@ -912,6 +912,199 @@ describe('LivesClient', () => {
     })
   })
 
+  test('creates a live viewer document in Firestore', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+    let seenBody = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+        seenBody = String(init?.body ?? '')
+
+        return new Response(JSON.stringify({ writeResults: [] }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        })
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+        userId: 'user-123',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.createViewer()
+
+    expect(seenUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents:commit?key=api-key',
+    )
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(JSON.parse(seenBody)).toEqual({
+      writes: [
+        {
+          update: {
+            name: 'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-viewers/user-123',
+            fields: {
+              space_key: {
+                stringValue: 'space-123',
+              },
+              live_id: {
+                stringValue: 'live-456',
+              },
+              user_id: {
+                stringValue: 'user-123',
+              },
+              new_user_live_comment_id: {
+                nullValue: null,
+              },
+            },
+          },
+          updateMask: {
+            fieldPaths: ['space_key', 'live_id', 'user_id', 'new_user_live_comment_id'],
+          },
+          updateTransforms: [
+            {
+              fieldPath: 'created_at',
+              setToServerValue: 'REQUEST_TIME',
+            },
+            {
+              fieldPath: 'updated_at',
+              setToServerValue: 'REQUEST_TIME',
+            },
+          ],
+          currentDocument: {
+            exists: false,
+          },
+        },
+      ],
+    })
+    expect(result).toEqual({
+      spaceKey: 'space-123',
+      liveId: 'live-456',
+      userId: 'user-123',
+      documentPath: 'spaces/space-123/lives/live-456/live-viewers/user-123',
+    })
+  })
+
+  test('updates the live viewer heartbeat in Firestore', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+    let seenBody = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+        seenBody = String(init?.body ?? '')
+
+        return new Response(JSON.stringify({ writeResults: [] }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        })
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+        userId: 'user-123',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const result = await client.lives.heartbeatViewer()
+
+    expect(seenUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents:commit?key=api-key',
+    )
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(JSON.parse(seenBody)).toEqual({
+      writes: [
+        {
+          transform: {
+            document:
+              'projects/popopo-prod/databases/(default)/documents/spaces/space-123/lives/live-456/live-viewers/user-123',
+            fieldTransforms: [
+              {
+                fieldPath: 'updated_at',
+                setToServerValue: 'REQUEST_TIME',
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(result).toEqual({
+      spaceKey: 'space-123',
+      liveId: 'live-456',
+      userId: 'user-123',
+      documentPath: 'spaces/space-123/lives/live-456/live-viewers/user-123',
+    })
+  })
+
+  test('starts a live viewer heartbeat session and sends the initial writes', async () => {
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = []
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        calls.push({
+          url: String(input),
+          body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>,
+        })
+
+        return new Response(JSON.stringify({ writeResults: [] }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        })
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+        userId: 'user-123',
+        currentSpaceKey: 'space-123',
+        currentLiveId: 'live-456',
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+    })
+
+    const session = await client.lives.startViewerHeartbeat({
+      intervalMs: 20_000,
+    })
+    session.stop()
+
+    expect(session).toMatchObject({
+      spaceKey: 'space-123',
+      liveId: 'live-456',
+      userId: 'user-123',
+      documentPath: 'spaces/space-123/lives/live-456/live-viewers/user-123',
+      intervalMs: 20_000,
+    })
+    expect(calls).toHaveLength(2)
+    expect(calls[0]?.url).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents:commit?key=api-key',
+    )
+    expect(calls[1]?.url).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents:commit?key=api-key',
+    )
+  })
+
   test('reads public live power items from the Firestore powers collection', async () => {
     let seenUrl = ''
     let seenAuthorization = ''

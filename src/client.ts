@@ -176,6 +176,26 @@ interface ClientRuntime {
   readonly options: ResolvedClientOptions
 }
 
+export interface LiveViewerHeartbeatContext {
+  spaceKey: string
+  liveId: string
+  userId: string
+  documentPath: string
+}
+
+export interface LiveViewerHeartbeatOptions {
+  spaceKey?: string
+  liveId?: string
+  userId?: string
+  request?: HomeDisplaySpacesRequest
+  query?: RequestQuery
+}
+
+export interface LiveViewerHeartbeatSession extends LiveViewerHeartbeatContext {
+  intervalMs: number
+  stop(): void
+}
+
 export class PopopoClient {
   readonly http: HttpClient
   readonly auth: FirebaseAuthClient
@@ -1373,6 +1393,115 @@ export class LivesClient {
     return {
       ...enterResult,
       receiveInfo,
+    }
+  }
+
+  async createViewer(input: LiveViewerHeartbeatOptions = {}): Promise<LiveViewerHeartbeatContext> {
+    const context = await resolveLiveViewerContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const documentName = buildFirestoreFullDocumentName(
+      this.runtime.options.firebase.projectId,
+      context.documentPath,
+    )
+
+    try {
+      await commitFirestoreWrite(this.runtime, firebaseBearerToken, [
+        {
+          update: {
+            name: documentName,
+            fields: {
+              space_key: {
+                stringValue: context.spaceKey,
+              },
+              live_id: {
+                stringValue: context.liveId,
+              },
+              user_id: {
+                stringValue: context.userId,
+              },
+              new_user_live_comment_id: {
+                nullValue: null,
+              },
+            },
+          },
+          updateMask: {
+            fieldPaths: ['space_key', 'live_id', 'user_id', 'new_user_live_comment_id'],
+          },
+          updateTransforms: [
+            {
+              fieldPath: 'created_at',
+              setToServerValue: 'REQUEST_TIME',
+            },
+            {
+              fieldPath: 'updated_at',
+              setToServerValue: 'REQUEST_TIME',
+            },
+          ],
+          currentDocument: {
+            exists: false,
+          },
+        },
+      ])
+    } catch (error) {
+      if (!(error instanceof PopopoApiError) || (error.status !== 400 && error.status !== 409)) {
+        throw error
+      }
+    }
+
+    return context
+  }
+
+  async heartbeatViewer(
+    input: LiveViewerHeartbeatOptions = {},
+  ): Promise<LiveViewerHeartbeatContext> {
+    const context = await resolveLiveViewerContext(this.runtime, input)
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+
+    await commitFirestoreWrite(this.runtime, firebaseBearerToken, [
+      {
+        transform: {
+          document: buildFirestoreFullDocumentName(
+            this.runtime.options.firebase.projectId,
+            context.documentPath,
+          ),
+          fieldTransforms: [
+            {
+              fieldPath: 'updated_at',
+              setToServerValue: 'REQUEST_TIME',
+            },
+          ],
+        },
+      },
+    ])
+
+    return context
+  }
+
+  async startViewerHeartbeat(
+    input: LiveViewerHeartbeatOptions & { intervalMs?: number } = {},
+  ): Promise<LiveViewerHeartbeatSession> {
+    const intervalMs = input.intervalMs ?? 60_000
+    const context = await this.createViewer(input)
+    await this.heartbeatViewer(context)
+
+    let heartbeatRunning = false
+    const timer = setInterval(() => {
+      if (heartbeatRunning) {
+        return
+      }
+
+      heartbeatRunning = true
+      void this.heartbeatViewer(context).finally(() => {
+        heartbeatRunning = false
+      })
+    }, intervalMs)
+
+    return {
+      ...context,
+      intervalMs,
+      stop() {
+        clearInterval(timer)
+      },
     }
   }
 
@@ -2759,12 +2888,47 @@ function buildFirestoreRunQueryUrl(baseUrl: string, projectId: string): string {
   )
 }
 
+function buildFirestoreCommitUrl(baseUrl: string, projectId: string): string {
+  return buildAbsoluteUrl(
+    baseUrl,
+    `/projects/${encodeURIComponent(projectId)}/databases/(default)/documents:commit`,
+  )
+}
+
 function buildFirestoreDocumentPath(collectionId: string, documentId: string): string {
   return `${encodeURIComponent(collectionId)}/${encodeURIComponent(documentId)}`
 }
 
 function buildFirestoreCollectionPath(...segments: string[]): string {
   return segments.map((segment) => encodeURIComponent(segment)).join('/')
+}
+
+function buildFirestoreFullDocumentName(projectId: string, documentPath: string): string {
+  return `projects/${projectId}/databases/(default)/documents/${documentPath}`
+}
+
+async function commitFirestoreWrite(
+  runtime: ClientRuntime,
+  firebaseBearerToken: string,
+  writes: Array<Record<string, unknown>>,
+): Promise<Record<string, unknown>> {
+  return runtime.http.request<Record<string, unknown>, { writes: Array<Record<string, unknown>> }>({
+    method: 'POST',
+    url: buildFirestoreCommitUrl(
+      runtime.options.firebase.firestoreBaseUrl,
+      runtime.options.firebase.projectId,
+    ),
+    auth: 'none',
+    headers: {
+      authorization: `Bearer ${firebaseBearerToken}`,
+    },
+    query: {
+      key: runtime.options.firebase.apiKey,
+    },
+    body: {
+      writes,
+    },
+  })
 }
 
 async function fetchAllFirestoreCollectionDocuments<TFields = Record<string, unknown>>(
@@ -3705,6 +3869,27 @@ async function resolveLiveContext(
   return {
     spaceKey,
     liveId: currentLiveId,
+  }
+}
+
+async function resolveLiveViewerContext(
+  runtime: ClientRuntime,
+  input: LiveViewerHeartbeatOptions,
+): Promise<LiveViewerHeartbeatContext> {
+  const context = await resolveLiveContext(runtime, input)
+  const userId = input.userId ?? requireUserId(runtime.http)
+
+  return {
+    ...context,
+    userId,
+    documentPath: buildFirestoreCollectionPath(
+      'spaces',
+      context.spaceKey,
+      'lives',
+      context.liveId,
+      'live-viewers',
+      userId,
+    ),
   }
 }
 

@@ -419,6 +419,81 @@ export interface LiveCommentListResult {
   raw: Record<string, unknown>
 }
 
+export interface LiveViewer {
+  id: string
+  documentPath: string
+  spaceKey?: string
+  liveId?: string
+  userId?: string
+  newUserLiveCommentId?: string | null
+  createdAt?: number
+  updatedAt?: number
+  raw: FirestoreDocument<Record<string, unknown>>
+  [key: string]: unknown
+}
+
+export interface LiveViewerListOptions {
+  limit?: number
+  orderBy?: string
+  pageToken?: string
+}
+
+export interface LiveViewerListResult {
+  viewers: LiveViewer[]
+  nextPageToken?: string
+  raw: Record<string, unknown>
+}
+
+export interface LiveViewLog {
+  id: string
+  documentPath: string
+  spaceKey?: string
+  liveId?: string
+  userId?: string
+  createdAt?: number
+  updatedAt?: number
+  raw: FirestoreDocument<Record<string, unknown>>
+  [key: string]: unknown
+}
+
+export interface LiveViewLogListOptions {
+  limit?: number
+  orderBy?: string
+  pageToken?: string
+}
+
+export interface LiveViewLogListResult {
+  logs: LiveViewLog[]
+  nextPageToken?: string
+  raw: Record<string, unknown>
+}
+
+export interface LivePowerSummary {
+  id: string
+  documentPath: string
+  spaceKey?: string
+  liveId?: string
+  userId?: string
+  power?: number
+  createdAt?: number
+  updatedAt?: number
+  user?: LiveCommentUser
+  raw: FirestoreDocument<Record<string, unknown>>
+  [key: string]: unknown
+}
+
+export interface LivePowerSummaryListOptions {
+  limit?: number
+  orderBy?: string
+  pageToken?: string
+}
+
+export interface LivePowerSummaryListResult {
+  summaries: LivePowerSummary[]
+  nextPageToken?: string
+  raw: Record<string, unknown>
+}
+
 export interface SpaceMessageUser {
   id?: string
   name?: string
