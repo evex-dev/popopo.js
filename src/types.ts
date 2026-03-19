@@ -615,6 +615,25 @@ export interface StoreSkinListResult {
   raw: Record<string, unknown>
 }
 
+export interface InitialLook {
+  id: string
+  itemId: string
+  documentPath: string
+  status?: string
+  media?: Record<string, unknown>
+  mediaUrl?: string
+  createdAt?: number
+  updatedAt?: number
+  raw: FirestoreDocument<Record<string, unknown>>
+  [key: string]: unknown
+}
+
+export interface InitialLookListResult {
+  looks: InitialLook[]
+  nextPageToken?: string
+  raw: unknown
+}
+
 export type SkinChangeKind = 'inventory' | (string & {})
 
 export interface SkinChangeRequest {
@@ -624,6 +643,16 @@ export interface SkinChangeRequest {
 }
 
 export interface SkinChangeResult {
+  result?: boolean
+  [key: string]: unknown
+}
+
+export interface AcquireInitialLookRequest {
+  itemId: string
+  withLookUpdate?: boolean
+}
+
+export interface AcquireInitialLookResult {
   result?: boolean
   [key: string]: unknown
 }

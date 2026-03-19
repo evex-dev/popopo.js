@@ -59,6 +59,8 @@ import type {
   HomeDisplaySpace,
   HomeDisplaySpacesRequest,
   HomeDisplaySpacesResponse,
+  InitialLook,
+  InitialLookListResult,
   Invite,
   InviteAcceptResult,
   LiveListItem,
@@ -104,6 +106,8 @@ import type {
   UserAnotherNameChangeRequest,
   SkinChangeRequest,
   SkinChangeResult,
+  AcquireInitialLookRequest,
+  AcquireInitialLookResult,
   UserDisplayNameChangeRequest,
   UserIconSourceChangeRequest,
   UserProfile,
@@ -2158,6 +2162,69 @@ export class SkinsClient {
     }
   }
 
+  async listInitialLooks(): Promise<InitialLookListResult> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'POST',
+      url: buildFirestoreRunQueryUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+      ),
+      auth: 'none',
+      headers: {
+        authorization: `Bearer ${firebaseBearerToken}`,
+      },
+      query: {
+        key: this.runtime.options.firebase.apiKey,
+      },
+      body: {
+        structuredQuery: {
+          from: [
+            {
+              collectionId: 'initial-looks',
+            },
+          ],
+          where: {
+            fieldFilter: {
+              field: {
+                fieldPath: 'status',
+              },
+              op: 'EQUAL',
+              value: {
+                stringValue: 'public',
+              },
+            },
+          },
+          limit: 100,
+        },
+      },
+    })
+
+    const parsed = parseFirestoreRunQueryDocumentList(payload)
+    const looks = parsed.documents.map((document) => toInitialLook(document))
+
+    return {
+      looks,
+      raw: parsed.raw,
+    }
+  }
+
+  acquireInitialLook<TResponse = AcquireInitialLookResult>(
+    request: AcquireInitialLookRequest,
+  ): Promise<TResponse> {
+    const endpointPath = `/api/v2/users/me/user-inventories/${encodeURIComponent(request.itemId)}`
+
+    return this.runtime.http.request<TResponse>({
+      method: 'POST',
+      url: buildAbsoluteUrl(this.runtime.options.apiBaseUrl, endpointPath),
+      auth: 'bearer',
+      body: {
+        kind: 'initial-look',
+        withLookUpdate: request.withLookUpdate ?? true,
+      },
+    })
+  }
+
   change<TResponse = SkinChangeResult>(request: SkinChangeRequest): Promise<TResponse> {
     const { inventoryId, kind = 'inventory', ...rest } = request
     const endpointPath = this.runtime.endpoints.users.updateLook.startsWith('/api/')
@@ -2685,6 +2752,13 @@ function buildFirestoreCollectionUrl(
   )
 }
 
+function buildFirestoreRunQueryUrl(baseUrl: string, projectId: string): string {
+  return buildAbsoluteUrl(
+    baseUrl,
+    `/projects/${encodeURIComponent(projectId)}/databases/(default)/documents:runQuery`,
+  )
+}
+
 function buildFirestoreDocumentPath(collectionId: string, documentId: string): string {
   return `${encodeURIComponent(collectionId)}/${encodeURIComponent(documentId)}`
 }
@@ -3071,6 +3145,27 @@ function parseFirestoreDocumentList<TFields = Record<string, unknown>>(
   }
 }
 
+function parseFirestoreRunQueryDocumentList<TFields = Record<string, unknown>>(
+  payload: unknown,
+): {
+  documents: FirestoreDocument<TFields>[]
+  raw: unknown
+} {
+  const rows = Array.isArray(payload) ? payload : []
+  const documents = rows
+    .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === 'object')
+    .map((value) => value.document)
+    .filter(
+      (value): value is Record<string, unknown> => Boolean(value) && typeof value === 'object',
+    )
+    .map((value) => parseFirestoreDocument<TFields>(value))
+
+  return {
+    documents,
+    raw: payload,
+  }
+}
+
 function parseLiveCommentList(payload: Record<string, unknown>): LiveCommentListResult {
   const parsed = parseFirestoreDocumentList(payload)
 
@@ -3339,6 +3434,29 @@ function toStoreSkinDistribution(
     endAt: toFiniteNumber(record.end_at),
     active: optionalBoolean(salePeriodState?.active),
     salePeriodState,
+    raw: document,
+    ...record,
+  }
+}
+
+function toInitialLook(document: FirestoreDocument<Record<string, unknown>>): InitialLook {
+  const record = document.fields
+  const itemId =
+    optionalString(record.item_id) ?? optionalString(record.id) ?? lastPathSegment(document.name)
+  const media = asObjectRecord(record.media)
+
+  return {
+    id: itemId,
+    itemId,
+    documentPath: document.name,
+    status: optionalString(record.status),
+    media,
+    mediaUrl:
+      optionalString(media?.value) ??
+      optionalString(media?.url) ??
+      optionalString(media?.downloadUrl),
+    createdAt: toFiniteNumber(record.created_at),
+    updatedAt: toFiniteNumber(record.updated_at),
     raw: document,
     ...record,
   }

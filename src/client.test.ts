@@ -298,6 +298,185 @@ describe('SkinsClient', () => {
     expect(result).toEqual({ result: true })
   })
 
+  test('lists public initial looks from Firestore', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+    let seenMethod = ''
+    let seenBody = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenMethod = String(init?.method ?? '')
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+        seenBody = String(init?.body ?? '')
+
+        return new Response(
+          JSON.stringify([
+            {
+              document: {
+                name: 'projects/popopo-prod/databases/(default)/documents/initial-looks/JgZmVRDflrVpqGUImA6U',
+                fields: {
+                  item_id: { stringValue: 'look-001' },
+                  status: { stringValue: 'public' },
+                  media: {
+                    mapValue: {
+                      fields: {
+                        value: { stringValue: 'https://cdn.example.com/look-001.png' },
+                      },
+                    },
+                  },
+                  created_at: { integerValue: '1710000000' },
+                  updated_at: { integerValue: '1710000100' },
+                },
+              },
+            },
+            {
+              readTime: '2026-03-19T00:00:00Z',
+            },
+          ]),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        )
+      },
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+      },
+    })
+
+    const result = await client.skins.listInitialLooks()
+
+    expect(seenUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents:runQuery?key=api-key',
+    )
+    expect(seenMethod).toBe('POST')
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(seenBody).toBe(
+      JSON.stringify({
+        structuredQuery: {
+          from: [
+            {
+              collectionId: 'initial-looks',
+            },
+          ],
+          where: {
+            fieldFilter: {
+              field: {
+                fieldPath: 'status',
+              },
+              op: 'EQUAL',
+              value: {
+                stringValue: 'public',
+              },
+            },
+          },
+          limit: 100,
+        },
+      }),
+    )
+    expect(result.looks).toEqual([
+      expect.objectContaining({
+        id: 'look-001',
+        itemId: 'look-001',
+        status: 'public',
+        mediaUrl: 'https://cdn.example.com/look-001.png',
+        createdAt: 1710000000,
+        updatedAt: 1710000100,
+      }),
+    ])
+  })
+
+  test('ignores non-document entries in initial look runQuery responses', async () => {
+    const client = new PopopoClient({
+      fetch: async () =>
+        new Response(
+          JSON.stringify([
+            {
+              skippedResults: 1,
+            },
+            {
+              document: {
+                name: 'projects/popopo-prod/databases/(default)/documents/initial-looks/look-001',
+                fields: {
+                  item_id: { stringValue: 'look-001' },
+                  status: { stringValue: 'public' },
+                },
+              },
+            },
+          ]),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
+          },
+        ),
+      firebase: {
+        apiKey: 'api-key',
+        projectId: 'popopo-prod',
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+      },
+    })
+
+    const result = await client.skins.listInitialLooks()
+
+    expect(result.looks).toEqual([
+      expect.objectContaining({
+        id: 'look-001',
+        itemId: 'look-001',
+        status: 'public',
+      }),
+    ])
+  })
+
+  test('acquires an initial look via the user inventory API', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+    let seenBody = ''
+
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+        seenBody = String(init?.body ?? '')
+
+        return new Response(JSON.stringify({ result: true }), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        })
+      },
+      session: {
+        firebaseIdToken: 'firebase-token',
+      },
+    })
+
+    const result = await client.skins.acquireInitialLook({
+      itemId: 'look-001',
+    })
+
+    expect(seenUrl).toBe('https://api.popopo.com/api/v2/users/me/user-inventories/look-001')
+    expect(seenAuthorization).toBe('Bearer firebase-token')
+    expect(seenBody).toBe(
+      JSON.stringify({
+        kind: 'initial-look',
+        withLookUpdate: true,
+      }),
+    )
+    expect(result).toEqual({ result: true })
+  })
+
   test('lists public store skins that are currently on sale', async () => {
     const seenUrls: string[] = []
     const seenAuthorizations: string[] = []
