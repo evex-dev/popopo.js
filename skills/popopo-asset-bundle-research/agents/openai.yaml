@@ -1,4 +1,4 @@
 interface:
   display_name: "Popopo AssetBundle Research"
-  short_description: "Research Popopo APK and AssetBundles."
-  default_prompt: "Use $popopo-asset-bundle-research to analyze an authorized Popopo APK and decrypt its AssetBundles."
+  short_description: "Inspect Popopo AssetBundle compatibility."
+  default_prompt: "Use $popopo-asset-bundle-research to inspect a locally obtained Popopo build and validate AssetBundle compatibility."

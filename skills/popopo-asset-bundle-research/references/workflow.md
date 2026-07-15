@@ -1,9 +1,11 @@
-# Popopo AssetBundle Research Workflow
+# Popopo AssetBundle Compatibility Workflow
 
 Commands are portable across Windows, macOS, and Linux; only executable suffixes and
-package-manager installation steps differ.
+package-manager installation steps differ. Use an APK from the user's own installed copy or one
+provided for compatibility inspection. This workflow does not grant access to private or
+otherwise unavailable store content.
 
-## 1. Capture provenance and extract the APK
+## 1. Capture provenance and export the local app installation
 
 Record the package name, version name/code, device ABI, and SHA-256 hashes. Discover every
 installed split rather than assuming there is one APK:
@@ -40,7 +42,7 @@ Useful landmarks are the `AssetBundleCrypt` assembly, `Encryption.CreateStream`,
 builds use a 32-byte AES key and may store it as a 33-byte null-terminated blob, but always verify
 a candidate against a downloaded encrypted bundle.
 
-## 3. Recover a key file
+## 3. Identify and verify the bundle key used by the local build
 
 Run the bundled helper from the repository root. It scans Cpp2IL field-RVA blobs, tests only
 32-byte candidates (or 33 bytes ending in NUL), requires a unique candidate that decodes the
@@ -54,9 +56,12 @@ bun skills/popopo-asset-bundle-research/scripts/find-asset-bundle-key.ts \
   --output /path/to/popopo-asset-bundle.key
 ```
 
-Do not add the key or its encoded representations to source control.
+Do not add app-specific key material or its encoded representations to source control.
 
-## 4. Verify and decrypt
+## 4. Validate locally accessible bundles
+
+Obtain bundle locations and content through the normal client APIs and existing authentication.
+The commands below only transform local files; they do not change server access or entitlements.
 
 ```bash
 popopo skins decrypt-store \
@@ -80,6 +85,6 @@ streaming conversion and validates the `UnityFS` signature plus the declared fil
 
 ## Revalidation after an app update
 
-Treat the key, Unity version, encryption assembly, and algorithm as versioned observations. Pull
-the new split APKs, hash them, regenerate Cpp2IL output, recover a new key file, and run
+Treat the key, Unity version, encryption assembly, and algorithm as versioned observations. Export
+the new split APKs, hash them, regenerate Cpp2IL output, verify the current key file, and run
 `--verify-only` over representative bundles before bulk decryption.
