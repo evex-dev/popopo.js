@@ -80,6 +80,7 @@ import type {
   OwnedSkinListOptions,
   OwnedSkinListResult,
   StoreSkin,
+  StoreSkinAssetBundle,
   StoreSkinDistribution,
   StoreSkinGetOptions,
   StoreSkinListOptions,
@@ -133,6 +134,7 @@ export const DEFAULT_FIREBASE_APP_ID = '1:209007912111:android:a92e14f304f77c0c3
 export const DEFAULT_FIREBASE_AUTH_DOMAIN = 'popopo.firebaseapp.com'
 export const DEFAULT_FIREBASE_PROJECT_ID = 'popopo-prod'
 export const DEFAULT_FIREBASE_STORAGE_BUCKET = 'popopo-prod.firebasestorage.app'
+export const DEFAULT_FIREBASE_STORAGE_BASE_URL = 'https://firebasestorage.googleapis.com/v0'
 export const DEFAULT_FIREBASE_WEB_CLIENT_ID =
   '209007912111-eh2o06rp2h47lq89iheluudr53ena8o8.apps.googleusercontent.com'
 export const DEFAULT_FIREBASE_AUTH_BASE_URL =
@@ -2515,6 +2517,24 @@ export class SkinsClient {
     return toStoreSkinFromAlgoliaHit(payload)
   }
 
+  fetchStorageObject(location: string): Promise<Response> {
+    const url = buildFirebaseStorageDownloadUrl(location)
+    const usesFirebaseAuth =
+      location.startsWith('gs://') || new URL(url).hostname === 'firebasestorage.googleapis.com'
+
+    return this.runtime.http.request<Response>({
+      method: 'GET',
+      url,
+      auth: usesFirebaseAuth ? 'firebase' : 'none',
+      includeAppCheck: false,
+      parseAs: 'response',
+    })
+  }
+
+  fetchAssetBundle(location: string): Promise<Response> {
+    return this.fetchStorageObject(location)
+  }
+
   async listInitialLooks(): Promise<InitialLookListResult> {
     const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
     const payload = await this.runtime.http.request<Record<string, unknown>>({
@@ -3968,6 +3988,7 @@ function toStoreSkinFromAlgoliaHit(hit: Record<string, unknown>): StoreSkin {
     isNew: optionalBoolean(hit.is_new),
     isRecommended: optionalBoolean(hit.is_recommended),
     isReserved: optionalBoolean(hit.is_reserved),
+    assetBundle: toStoreSkinAssetBundle(itemRecord?.asset_bundle ?? hit.asset_bundle),
     media: asObjectRecord(itemRecord?.media),
     tags: Array.isArray(itemRecord?.tags)
       ? itemRecord.tags
@@ -4335,6 +4356,44 @@ function buildAlgoliaQueryUrl(indexName: string): string {
 
 function buildAlgoliaObjectUrl(indexName: string, objectId: string): string {
   return `https://${DEFAULT_ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encodeURIComponent(indexName)}/${encodeURIComponent(objectId)}`
+}
+
+function buildFirebaseStorageDownloadUrl(location: string): string {
+  if (/^https?:\/\//i.test(location)) {
+    return location
+  }
+
+  const url = new URL(location)
+
+  if (url.protocol !== 'gs:' || !url.hostname || !url.pathname.slice(1)) {
+    throw new PopopoConfigurationError(`Invalid Firebase Storage location: ${location}`)
+  }
+
+  const objectPath = decodeURIComponent(url.pathname.slice(1))
+  const downloadUrl = new URL(
+    `/v0/b/${encodeURIComponent(url.hostname)}/o/${encodeURIComponent(objectPath)}`,
+    DEFAULT_FIREBASE_STORAGE_BASE_URL,
+  )
+  downloadUrl.searchParams.set('alt', 'media')
+  return downloadUrl.toString()
+}
+
+function toStoreSkinAssetBundle(value: unknown): StoreSkinAssetBundle | undefined {
+  const record = asObjectRecord(value)
+
+  if (!record) {
+    return undefined
+  }
+
+  const assetBundle: StoreSkinAssetBundle = {
+    android: optionalString(record.android),
+    ios: optionalString(record.ios),
+    linux: optionalString(record.linux),
+    windows: optionalString(record.windows),
+    mac: optionalString(record.mac),
+  }
+
+  return Object.values(assetBundle).some(Boolean) ? assetBundle : undefined
 }
 
 function toEpochSeconds(value: unknown): number | undefined {
