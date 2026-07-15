@@ -1109,15 +1109,19 @@ async function buildStoreDatasetIndex(
 
   if (!hasFlag(options, 'no-hashes')) {
     const files = (await listFilesRecursively(outputDir))
-      .filter(
-        (path) =>
+      .filter((path) => {
+        const relativePath = toPortableRelativePath(outputDir, path)
+        return (
           ![
             'dataset.jsonl',
             'files.sha256',
             'manifest.json',
             'platform-differences.jsonl',
-          ].includes(relative(outputDir, path)),
-      )
+          ].includes(relativePath) &&
+          !relativePath.startsWith('.git/') &&
+          !relativePath.startsWith('node_modules/')
+        )
+      })
       .sort()
     const concurrency = Math.min(parseStoreDownloadConcurrency(options), 8)
     const limit = pLimit(concurrency)
