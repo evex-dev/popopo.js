@@ -110,7 +110,6 @@ popopo tso build-file-url --file-id <id> [--modifier-enabled]
 ## Global Options To Remember
 
 ```text
---strings <path>
 --session-file <path>
 --base-url <url>
 --api-base-url <url>
@@ -140,7 +139,7 @@ popopo tso build-file-url --file-id <id> [--modifier-enabled]
 
 ## Operational Notes
 
-- Default strings path resolves to `extracted/jadx_out/resources/res/values/strings.xml` when present.
+- Firebase and Popopo connection defaults are built into the CLI; no Android resource file is required.
 - Default session path resolves to `.popopo-session.json` at the repository root.
 - The CLI persists session changes after commands unless `--no-persist` is set.
 - Object results are usually printed as formatted JSON even without `--json`.

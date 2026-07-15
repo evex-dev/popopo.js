@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { publishLiveAudio } from '../src/live-audio-publisher.ts'
 import {
+  DEFAULT_FIREBASE_CONFIG,
   DEFAULT_FIREBASE_AUTH_BASE_URL,
   DEFAULT_FIREBASE_SECURE_TOKEN_BASE_URL,
   DEFAULT_POPOPO_API_BASE_URL,
@@ -32,7 +33,6 @@ import {
 
 type GlobalOptions = {
   json: boolean
-  stringsPath: string
   sessionFile: string
   baseUrl?: string
   apiBaseUrl?: string
@@ -51,16 +51,8 @@ type ParsedArgs = {
   options: Map<string, string[]>
 }
 
-type ResourceStrings = Record<string, string>
-
 const cliDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(cliDir, '../..')
-const legacyStringsPath = resolve(repoRoot, 'jadx_out/resources/res/values/strings.xml')
-const extractedStringsPath = resolve(
-  repoRoot,
-  'extracted/jadx_out/resources/res/values/strings.xml',
-)
-const defaultStringsPath = existsSync(legacyStringsPath) ? legacyStringsPath : extractedStringsPath
 const defaultSessionFile = resolve(repoRoot, '.popopo-session.json')
 
 async function main(): Promise<void> {
@@ -72,9 +64,8 @@ async function main(): Promise<void> {
   }
 
   const globalOptions = parseGlobalOptions(parsed.options)
-  const resources = await loadResourceStrings(globalOptions.stringsPath)
   const session = await loadSession(globalOptions.sessionFile)
-  const client = createClient(globalOptions, resources, session)
+  const client = createClient(globalOptions, session)
 
   const result = await dispatchCommand(parsed.command, parsed.options, client, {
     globalOptions,
@@ -896,7 +887,7 @@ async function runSignUp(
 
   return {
     action: 'signup',
-    baseUrl: resolveBaseUrl(globalOptions, await loadResourceStrings(globalOptions.stringsPath)),
+    baseUrl: resolveBaseUrl(globalOptions),
     session,
     profile,
   }
@@ -1437,23 +1428,18 @@ function buildSkinChangeRequest(options: Map<string, string[]>): {
 
 function createClient(
   globalOptions: GlobalOptions,
-  resources: ResourceStrings,
   session: AuthState,
 ): PopopoClient {
   return new PopopoClient({
-    baseUrl: resolveBaseUrl(globalOptions, resources),
-    apiBaseUrl: resolveApiBaseUrl(globalOptions, resources),
+    baseUrl: resolveBaseUrl(globalOptions),
+    apiBaseUrl: resolveApiBaseUrl(globalOptions),
     session,
     firebase: {
-      apiKey: globalOptions.apiKey ?? requireString(resources, 'google_api_key'),
+      ...DEFAULT_FIREBASE_CONFIG,
+      apiKey: globalOptions.apiKey ?? DEFAULT_FIREBASE_CONFIG.apiKey,
       authBaseUrl: globalOptions.authBaseUrl ?? DEFAULT_FIREBASE_AUTH_BASE_URL,
       secureTokenBaseUrl:
         globalOptions.secureTokenBaseUrl ?? DEFAULT_FIREBASE_SECURE_TOKEN_BASE_URL,
-      authDomain: resources.firebase_mail_link_domain ?? 'popopo.firebaseapp.com',
-      appId: resources.google_app_id ?? '',
-      projectId: resources.project_id ?? '',
-      storageBucket: resources.google_storage_bucket ?? '',
-      webClientId: resources.default_web_client_id ?? '',
     },
     tso: {
       oauthBaseUrl: globalOptions.tsoOauthBaseUrl,
@@ -1465,61 +1451,17 @@ function createClient(
   })
 }
 
-function resolveBaseUrl(globalOptions: GlobalOptions, resources: ResourceStrings): string {
-  if (globalOptions.baseUrl) {
-    return globalOptions.baseUrl
-  }
-
-  const envHostName = resources.env_host_name
-
-  if (!envHostName) {
-    return DEFAULT_POPOPO_BASE_URL
-  }
-
-  if (/^https?:\/\//i.test(envHostName)) {
-    return envHostName
-  }
-
-  if (envHostName.includes('.')) {
-    return `https://${envHostName}`
-  }
-
-  return `https://www.${envHostName}.com`
+function resolveBaseUrl(globalOptions: GlobalOptions): string {
+  return globalOptions.baseUrl ?? DEFAULT_POPOPO_BASE_URL
 }
 
-function resolveApiBaseUrl(globalOptions: GlobalOptions, resources: ResourceStrings): string {
-  if (globalOptions.apiBaseUrl) {
-    return globalOptions.apiBaseUrl
-  }
-
-  const envHostName = resources.env_host_name
-
-  if (!envHostName) {
-    return DEFAULT_POPOPO_API_BASE_URL
-  }
-
-  if (/^https?:\/\//i.test(envHostName)) {
-    const url = new URL(envHostName)
-
-    if (url.hostname.startsWith('api.')) {
-      return envHostName
-    }
-
-    url.hostname = `api.${url.hostname.replace(/^www\./, '')}`
-    return url.toString().replace(/\/$/, '')
-  }
-
-  if (envHostName.includes('.')) {
-    return `https://api.${envHostName.replace(/^www\./, '')}`
-  }
-
-  return `https://api.${envHostName}.com`
+function resolveApiBaseUrl(globalOptions: GlobalOptions): string {
+  return globalOptions.apiBaseUrl ?? DEFAULT_POPOPO_API_BASE_URL
 }
 
 function parseGlobalOptions(options: Map<string, string[]>): GlobalOptions {
   return {
     json: hasFlag(options, 'json'),
-    stringsPath: resolve(getSingleOption(options, 'strings') ?? defaultStringsPath),
     sessionFile: resolve(getSingleOption(options, 'session-file') ?? defaultSessionFile),
     baseUrl: getSingleOption(options, 'base-url'),
     apiBaseUrl: getSingleOption(options, 'api-base-url'),
@@ -1708,34 +1650,6 @@ function parseQueryOptions(options: Map<string, string[]>): RequestQuery | undef
   return query
 }
 
-async function loadResourceStrings(stringsPath: string): Promise<ResourceStrings> {
-  const xml = await readFile(stringsPath, 'utf8')
-  const strings: ResourceStrings = {}
-  const pattern = /<string\s+name="([^"]+)">([\s\S]*?)<\/string>|<string\s+name="([^"]+)"\s*\/>/g
-
-  for (const match of xml.matchAll(pattern)) {
-    const name = match[1] ?? match[3]
-
-    if (!name) {
-      continue
-    }
-
-    strings[name] = decodeXmlEntities((match[2] ?? '').trim())
-  }
-
-  return strings
-}
-
-function decodeXmlEntities(value: string): string {
-  return value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-}
-
 async function loadSession(sessionFile: string): Promise<AuthState> {
   if (!existsSync(sessionFile)) {
     return {}
@@ -1760,16 +1674,6 @@ function compactObject(record: Record<string, unknown>): Record<string, unknown>
   }
 
   return next
-}
-
-function requireString(strings: ResourceStrings, key: string): string {
-  const value = strings[key]
-
-  if (!value) {
-    throw new Error(`Required string "${key}" was not found in ${defaultStringsPath}.`)
-  }
-
-  return value
 }
 
 function printResult(result: unknown, json: boolean): void {
@@ -1935,7 +1839,6 @@ function printHelp(): void {
       '  popopo tso build-file-url --file-id <id> [--modifier-enabled]',
       '',
       'Global options:',
-      `  --strings <path>              default: ${defaultStringsPath}`,
       `  --session-file <path>         default: ${defaultSessionFile}`,
       '  --base-url <url>',
       '  --api-base-url <url>',

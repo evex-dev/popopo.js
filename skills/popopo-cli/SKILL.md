@@ -34,7 +34,7 @@ popopo --help
 - Assume auth-bearing commands persist updated session state automatically unless `--no-persist` is passed.
 - Expect object results to print as formatted JSON even without `--json`.
 - Use `--json` anyway when output stability matters, because some stream and watch flows have custom human-readable output.
-- Pass `--strings <path>` only when the default resource path is missing or the caller explicitly wants another resource set.
+- Firebase and Popopo connection defaults are built into the CLI; no Android resource file is required.
 
 ## Command Selection
 
