@@ -89,7 +89,9 @@ popopo coins user-private-data [--user-id <id>]
 popopo push upsert-device --device-id <id> [--device-name <name>] [--system <dummy|android|ios>] [--app <name>]
 popopo calls create-push --kind <user-call|space-friends-call|live-follower-call> --space-key <space-key> [--user-id <id>] [--live-id <id>]
 popopo skins list [--user-id <id>] [--limit <n>] [--order-by <field dir>] [--page-token <token>]
-popopo skins list-store [--limit <n>] [--order-by <field dir>] [--include-inactive] [--include-non-public]
+popopo skins get --inventory-id <id> [--user-id <id>]
+popopo skins list-store [--search <text>] [--limit <n>] [--order-by <field dir>] [--include-inactive] [--include-non-public]
+popopo skins store-get --item-id <id> [--order-by <field dir>]
 popopo skins change --inventory-id <id>
 popopo invites list [--query key=value]
 popopo invites get --code <invite-code>

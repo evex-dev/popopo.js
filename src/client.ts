@@ -81,6 +81,7 @@ import type {
   OwnedSkinListResult,
   StoreSkin,
   StoreSkinDistribution,
+  StoreSkinGetOptions,
   StoreSkinListOptions,
   StoreSkinListResult,
   PersonalNotificationData,
@@ -2437,11 +2438,29 @@ export class SkinsClient {
     return parseOwnedSkinList(payload)
   }
 
+  async getOwned(inventoryId: string, userId = requireUserId(this.runtime.http)): Promise<OwnedSkin> {
+    const firebaseBearerToken = await ensureFirebaseBearerToken(this.runtime)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildFirestoreDocumentUrl(
+        this.runtime.options.firebase.firestoreBaseUrl,
+        this.runtime.options.firebase.projectId,
+        buildFirestoreCollectionPath('user-privates', userId, 'user-inventories', inventoryId),
+      ),
+      auth: 'none',
+      headers: { authorization: `Bearer ${firebaseBearerToken}` },
+      query: { key: this.runtime.options.firebase.apiKey },
+    })
+
+    return toOwnedSkin(parseFirestoreDocument(payload))
+  }
+
   async listStore(input: StoreSkinListOptions = {}): Promise<StoreSkinListResult> {
     const itemsResult = await fetchAllAlgoliaShopItemHits(this.runtime, {
       indexName: getStoreSkinAlgoliaIndexName(input.orderBy),
       hitsPerPage: getStoreSkinPageSize(input),
       limit: getStoreSkinLimit(input),
+      query: input.query ?? '',
     })
 
     const candidates = itemsResult.hits
@@ -2479,6 +2498,21 @@ export class SkinsClient {
         itemPages: itemsResult.rawPages,
       },
     }
+  }
+
+  async getStore(itemId: string, input: StoreSkinGetOptions = {}): Promise<StoreSkin> {
+    const indexName = getStoreSkinAlgoliaIndexName(input.orderBy)
+    const payload = await this.runtime.http.request<Record<string, unknown>>({
+      method: 'GET',
+      url: buildAlgoliaObjectUrl(indexName, itemId),
+      auth: 'none',
+      headers: {
+        'x-algolia-application-id': DEFAULT_ALGOLIA_APPLICATION_ID,
+        'x-algolia-api-key': DEFAULT_ALGOLIA_SEARCH_API_KEY,
+      },
+    })
+
+    return toStoreSkinFromAlgoliaHit(payload)
   }
 
   async listInitialLooks(): Promise<InitialLookListResult> {
@@ -3926,6 +3960,14 @@ function toStoreSkinFromAlgoliaHit(hit: Record<string, unknown>): StoreSkin {
     description: optionalString(hit.description),
     status: optionalString(hit.status),
     defaultPrice: toFiniteNumber(itemRecord?.default_price) ?? toFiniteNumber(hit.price),
+    price: toFiniteNumber(hit.price),
+    salePrice: toFiniteNumber(hit.sale_price),
+    saleDiscountRate: toFiniteNumber(hit.sale_discount_rate),
+    modelNumber: optionalString(hit.model_number),
+    isChargeOnly: optionalBoolean(hit.is_charge_only),
+    isNew: optionalBoolean(hit.is_new),
+    isRecommended: optionalBoolean(hit.is_recommended),
+    isReserved: optionalBoolean(hit.is_reserved),
     media: asObjectRecord(itemRecord?.media),
     tags: Array.isArray(itemRecord?.tags)
       ? itemRecord.tags
@@ -3942,8 +3984,6 @@ function toStoreSkinFromAlgoliaHit(hit: Record<string, unknown>): StoreSkin {
     ...itemRecord,
     salePeriodState,
     isSearchable: optionalBoolean(hit.is_searchable),
-    price: toFiniteNumber(hit.price),
-    salePrice: toFiniteNumber(hit.sale_price),
   }
 }
 
@@ -4240,6 +4280,7 @@ async function fetchAllAlgoliaShopItemHits(
     indexName: string
     hitsPerPage: number
     limit: number
+    query: string
   },
 ): Promise<{
   hits: Array<Record<string, unknown>>
@@ -4259,7 +4300,7 @@ async function fetchAllAlgoliaShopItemHits(
         'x-algolia-api-key': DEFAULT_ALGOLIA_SEARCH_API_KEY,
       },
       body: {
-        query: '',
+        query: input.query,
         hitsPerPage: input.hitsPerPage,
         page,
       },
@@ -4290,6 +4331,10 @@ async function fetchAllAlgoliaShopItemHits(
 
 function buildAlgoliaQueryUrl(indexName: string): string {
   return `https://${DEFAULT_ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encodeURIComponent(indexName)}/query`
+}
+
+function buildAlgoliaObjectUrl(indexName: string, objectId: string): string {
+  return `https://${DEFAULT_ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encodeURIComponent(indexName)}/${encodeURIComponent(objectId)}`
 }
 
 function toEpochSeconds(value: unknown): number | undefined {

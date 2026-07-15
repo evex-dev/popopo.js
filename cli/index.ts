@@ -570,6 +570,12 @@ async function runSkinsSubcommand(
     case 'list-store':
     case 'store-list':
       return client.skins.listStore(buildStoreSkinListOptions(options))
+    case 'get':
+      return client.skins.getOwned(requireOption(options, 'inventory-id'), getSingleOption(options, 'user-id'))
+    case 'store-get':
+      return client.skins.getStore(requireOption(options, 'item-id'), {
+        orderBy: getSingleOption(options, 'order-by'),
+      })
     case 'change':
       return client.skins.change(buildSkinChangeRequest(options))
     default:
@@ -1369,12 +1375,14 @@ function buildOwnedSkinListOptions(options: Map<string, string[]>): {
 }
 
 function buildStoreSkinListOptions(options: Map<string, string[]>): {
+  query?: string
   limit?: number
   orderBy?: string
   includeInactive?: boolean
   includeNonPublic?: boolean
 } {
   return compactObject({
+    query: getSingleOption(options, 'search'),
     limit: parseOptionalNumberOption(options, 'limit'),
     orderBy: getSingleOption(options, 'order-by'),
     includeInactive: hasFlag(options, 'include-inactive') ? true : undefined,
@@ -1821,7 +1829,9 @@ function printHelp(): void {
       '  popopo push upsert-device --device-id <id> [--device-name <name>] [--system <dummy|android|ios>] [--app <name>]',
       '  popopo calls create-push --kind <user-call|space-friends-call|live-follower-call> --space-key <space-key> [--user-id <id>] [--live-id <id>]',
       '  popopo skins list [--user-id <id>] [--limit <n>] [--order-by <field dir>] [--page-token <token>]',
-      '  popopo skins list-store [--limit <n>] [--order-by <field dir>] [--include-inactive] [--include-non-public]',
+      '  popopo skins get --inventory-id <id> [--user-id <id>]',
+      '  popopo skins list-store [--search <text>] [--limit <n>] [--order-by <field dir>] [--include-inactive] [--include-non-public]',
+      '  popopo skins store-get --item-id <id> [--order-by <field dir>]',
       '  popopo skins change --inventory-id <id>',
       '  popopo invites list [--query key=value]',
       '  popopo invites get --code <invite-code>',
@@ -1892,6 +1902,8 @@ function printHelp(): void {
       '  --live-id <value>',
       '  --user-id <value>',
       '  --inventory-id <value>',
+      '  --item-id <value>',
+      '  --search <text>          Search store looks by keyword',
       '  --skin-id <value>        Alias of --inventory-id for `popopo skins change`',
       '  --include-inactive       Include skins that are not currently on sale',
       '  --include-non-public     Include non-public item docs in `popopo skins list-store`',

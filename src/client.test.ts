@@ -717,6 +717,68 @@ describe('SkinsClient', () => {
       }),
     ])
   })
+
+  test('gets one owned avatar inventory document', async () => {
+    let seenUrl = ''
+    const client = new PopopoClient({
+      fetch: async (input) => {
+        seenUrl = String(input)
+        return new Response(JSON.stringify({
+          name: 'projects/popopo-prod/databases/(default)/documents/user-privates/user-123/user-inventories/inventory-001',
+          fields: {
+            id: { stringValue: 'inventory-001' },
+            item_id: { stringValue: 'look-001' },
+          },
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      },
+      session: { userId: 'user-123', firebaseIdToken: 'firebase-token' },
+      firebase: { apiKey: 'api-key', projectId: 'popopo-prod' },
+    })
+
+    const result = await client.skins.getOwned('inventory-001')
+
+    expect(seenUrl).toBe('https://firestore.googleapis.com/v1/projects/popopo-prod/databases/(default)/documents/user-privates/user-123/user-inventories/inventory-001?key=api-key')
+    expect(result).toMatchObject({ inventoryId: 'inventory-001', itemId: 'look-001' })
+  })
+
+  test('searches store avatars and gets a store item by id', async () => {
+    const calls: Array<{ url: string; method: string; body: string }> = []
+    const hit = {
+      objectID: 'look-001',
+      item_distribution_id: 'distribution-001',
+      name: 'Blue Look',
+      price: 1200,
+      sale_price: 900,
+      sale_discount_rate: 25,
+      model_number: 'LOOK-001',
+      status: 'public',
+      is_searchable: true,
+      sale_period_state: { active: true },
+      item: { kind: 'look', default_price: 1200 },
+    }
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        const url = String(input)
+        calls.push({ url, method: init?.method ?? 'GET', body: String(init?.body ?? '') })
+        return new Response(
+          JSON.stringify(url.endsWith('/query') ? { hits: [hit], nbPages: 1 } : hit),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      },
+    })
+
+    const listed = await client.skins.listStore({ query: 'blue', limit: 10 })
+    const item = await client.skins.getStore('look-001')
+
+    expect(calls[0]?.body).toBe(JSON.stringify({ query: 'blue', hitsPerPage: 10, page: 0 }))
+    expect(calls[1]).toEqual({
+      url: 'https://59s66kmoyi-dsn.algolia.net/1/indexes/items--desc%3Arecommend_priority/look-001',
+      method: 'GET',
+      body: '',
+    })
+    expect(listed.skins[0]).toMatchObject({ itemId: 'look-001', salePrice: 900 })
+    expect(item).toMatchObject({ itemId: 'look-001', modelNumber: 'LOOK-001' })
+  })
 })
 
 describe('LivesClient', () => {

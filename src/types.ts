@@ -666,6 +666,14 @@ export interface StoreSkin {
   description?: string
   status?: string
   defaultPrice?: number
+  price?: number
+  salePrice?: number
+  saleDiscountRate?: number
+  modelNumber?: string
+  isChargeOnly?: boolean
+  isNew?: boolean
+  isRecommended?: boolean
+  isReserved?: boolean
   media?: Record<string, unknown>
   tags?: unknown[]
   sales?: unknown[]
@@ -679,10 +687,15 @@ export interface StoreSkin {
 }
 
 export interface StoreSkinListOptions {
+  query?: string
   limit?: number
   orderBy?: string
   includeInactive?: boolean
   includeNonPublic?: boolean
+}
+
+export interface StoreSkinGetOptions {
+  orderBy?: string
 }
 
 export interface StoreSkinListResult {
