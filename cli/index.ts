@@ -670,6 +670,7 @@ async function downloadStoreSkins(
   options: Map<string, string[]>,
 ): Promise<Record<string, unknown>> {
   const outputDir = resolve(getSingleOption(options, 'output-dir') ?? 'extracted/store')
+  const itemsDir = resolve(outputDir, 'items')
   const platforms = parseStoreSkinAssetPlatforms(options)
   const concurrency = parseStoreDownloadConcurrency(options)
   const overwrite = hasFlag(options, 'overwrite')
@@ -718,7 +719,7 @@ async function downloadStoreSkins(
         skins.map((skin) =>
           limit(async () => {
             const metadataPath = resolve(
-              outputDir,
+              itemsDir,
               sanitizePathSegment(skin.itemId),
               'metadata.json',
             )
@@ -734,7 +735,7 @@ async function downloadStoreSkins(
     modelDownloads.map((download) =>
       limit(async (): Promise<StoreSkinDownloadEntry> => {
         const destination = resolve(
-          outputDir,
+          itemsDir,
           sanitizePathSegment(download.itemId),
           'asset-bundle',
           download.platform,
@@ -806,7 +807,7 @@ async function downloadStoreSkins(
     imageDownloads.map((download) =>
       limit(async (): Promise<StoreSkinImageDownloadEntry> => {
         const destinationBase = resolve(
-          outputDir,
+          itemsDir,
           sanitizePathSegment(download.itemId),
           'images',
           ...download.pathSegments.map(sanitizePathSegment),
@@ -881,6 +882,7 @@ async function downloadStoreSkins(
   const manifest = {
     generatedAt: new Date().toISOString(),
     outputDir,
+    itemsDir,
     platforms,
     storeSkinCount: skins.length,
     metadataCount: metadataResults.length,
@@ -902,6 +904,7 @@ async function downloadStoreSkins(
 
   return {
     outputDir,
+    itemsDir,
     platforms,
     storeSkinCount: manifest.storeSkinCount,
     metadataCount: manifest.metadataCount,
@@ -1039,7 +1042,9 @@ async function buildStoreDatasetIndex(
   options: Map<string, string[]>,
 ): Promise<Record<string, unknown>> {
   const outputDir = resolve(getSingleOption(options, 'output-dir') ?? 'extracted/store')
-  const directoryEntries = await readdir(outputDir, { withFileTypes: true })
+  const nestedItemsDir = resolve(outputDir, 'items')
+  const itemsDir = existsSync(nestedItemsDir) ? nestedItemsDir : outputDir
+  const directoryEntries = await readdir(itemsDir, { withFileTypes: true })
   const itemDirectories = directoryEntries
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -1048,7 +1053,7 @@ async function buildStoreDatasetIndex(
   const platforms: StoreSkinAssetPlatform[] = ['windows', 'mac', 'linux', 'android', 'ios']
 
   for (const itemId of itemDirectories) {
-    const itemDirectory = resolve(outputDir, itemId)
+    const itemDirectory = resolve(itemsDir, itemId)
     const metadataPath = resolve(itemDirectory, 'metadata.json')
 
     if (!existsSync(metadataPath)) {
@@ -1104,7 +1109,15 @@ async function buildStoreDatasetIndex(
 
   if (!hasFlag(options, 'no-hashes')) {
     const files = (await listFilesRecursively(outputDir))
-      .filter((path) => !['dataset.jsonl', 'files.sha256', 'manifest.json'].includes(relative(outputDir, path)))
+      .filter(
+        (path) =>
+          ![
+            'dataset.jsonl',
+            'files.sha256',
+            'manifest.json',
+            'platform-differences.jsonl',
+          ].includes(relative(outputDir, path)),
+      )
       .sort()
     const concurrency = Math.min(parseStoreDownloadConcurrency(options), 8)
     const limit = pLimit(concurrency)
@@ -2942,7 +2955,7 @@ function printHelp(): void {
       '  --search <text>          Search store looks by keyword',
       '  --input <path>           Input for `skins decrypt-bundle`',
       '  --input-dir <path>       Store dataset to decrypt (default: extracted/store)',
-      '  --output-dir <path>      Download or decryption destination',
+      '  --output-dir <path>      Dataset root or decryption destination (downloads use items/<item-id>)',
       '  --key-file <path>        32-byte AssetBundle key (raw, UTF-8, hex, or base64)',
       `  ${assetBundleKeyEnvironmentVariable}           Alternative AssetBundle key environment variable`,
       '  --platform <value>       Store asset platform (download default: windows; decrypt default: all)',

@@ -52,7 +52,7 @@ selected output file.
 ```bash
 bun skills/popopo-asset-bundle-research/scripts/find-asset-bundle-key.ts \
   --cpp2il-output analysis/cpp2il-cs \
-  --sample extracted/store/<item-id>/asset-bundle/android/main \
+  --sample extracted/store/items/<item-id>/asset-bundle/android/main \
   --output /path/to/popopo-asset-bundle.key
 ```
 
