@@ -675,6 +675,7 @@ export interface StoreSkin {
   isRecommended?: boolean
   isReserved?: boolean
   media?: Record<string, unknown>
+  assetBundle?: Partial<Record<StoreSkinAssetPlatform, string>>
   tags?: unknown[]
   sales?: unknown[]
   saleIds?: string[]
@@ -684,6 +685,40 @@ export interface StoreSkin {
   distributions?: StoreSkinDistribution[]
   raw: unknown
   [key: string]: unknown
+}
+
+export type StoreSkinAssetPlatform = 'android' | 'ios' | 'linux' | 'windows' | 'mac'
+
+export interface OwnedSkinAssetDownloadOptions {
+  userId?: string
+  platform?: StoreSkinAssetPlatform
+  signal?: AbortSignal
+}
+
+export interface OwnedSkinAssetDownloadResult {
+  inventory: OwnedSkin
+  storeItem: StoreSkin
+  platform: StoreSkinAssetPlatform
+  storageUri: string
+  downloadUrl: string
+  contentType?: string
+  contentLength?: number
+  response: Response
+}
+
+export interface StoreSkinAssetDownloadOptions {
+  platform?: StoreSkinAssetPlatform
+  signal?: AbortSignal
+}
+
+export interface StoreSkinAssetDownloadResult {
+  storeItem: StoreSkin
+  platform: StoreSkinAssetPlatform
+  storageUri: string
+  downloadUrl: string
+  contentType?: string
+  contentLength?: number
+  response: Response
 }
 
 export interface StoreSkinListOptions {

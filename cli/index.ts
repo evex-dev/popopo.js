@@ -576,6 +576,38 @@ async function runSkinsSubcommand(
       return client.skins.getStore(requireOption(options, 'item-id'), {
         orderBy: getSingleOption(options, 'order-by'),
       })
+    case 'download': {
+      const itemId = getSingleOption(options, 'itemid') ?? getSingleOption(options, 'item-id')
+      const inventoryId = getSingleOption(options, 'inventory-id')
+      if (!itemId && !inventoryId) {
+        throw new Error('Missing required option: --itemid or --inventory-id')
+      }
+      const platform = (getSingleOption(options, 'platform') ?? 'android') as
+        | 'android'
+        | 'ios'
+        | 'linux'
+        | 'windows'
+        | 'mac'
+      const outputPath = resolve(
+        getSingleOption(options, 'output') ?? `downloads/${itemId ?? inventoryId}-${platform}.bundle`,
+      )
+      const downloaded = itemId
+        ? await client.skins.downloadStoreAsset(itemId, { platform })
+        : await client.skins.downloadOwnedAsset(inventoryId!, {
+            userId: getSingleOption(options, 'user-id'),
+            platform,
+          })
+      await mkdir(dirname(outputPath), { recursive: true })
+      await writeFile(outputPath, new Uint8Array(await downloaded.response.arrayBuffer()))
+      return {
+        inventoryId: itemId ? undefined : inventoryId,
+        itemId: downloaded.storeItem.itemId,
+        platform,
+        outputPath,
+        contentType: downloaded.contentType,
+        contentLength: downloaded.contentLength,
+      }
+    }
     case 'change':
       return client.skins.change(buildSkinChangeRequest(options))
     default:
@@ -1832,6 +1864,7 @@ function printHelp(): void {
       '  popopo skins get --inventory-id <id> [--user-id <id>]',
       '  popopo skins list-store [--search <text>] [--limit <n>] [--order-by <field dir>] [--include-inactive] [--include-non-public]',
       '  popopo skins store-get --item-id <id> [--order-by <field dir>]',
+      '  popopo skins download (--itemid <id> | --inventory-id <id>) [--platform <android|ios|linux|windows|mac>] [--output <path>]',
       '  popopo skins change --inventory-id <id>',
       '  popopo invites list [--query key=value]',
       '  popopo invites get --code <invite-code>',
@@ -1903,6 +1936,9 @@ function printHelp(): void {
       '  --user-id <value>',
       '  --inventory-id <value>',
       '  --item-id <value>',
+      '  --itemid <value>         Download a store asset directly by item ID',
+      '  --platform <value>       Asset bundle platform (default: android)',
+      '  --output <path>          Download destination',
       '  --search <text>          Search store looks by keyword',
       '  --skin-id <value>        Alias of --inventory-id for `popopo skins change`',
       '  --include-inactive       Include skins that are not currently on sale',

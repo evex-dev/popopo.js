@@ -779,6 +779,87 @@ describe('SkinsClient', () => {
     expect(listed.skins[0]).toMatchObject({ itemId: 'look-001', salePrice: 900 })
     expect(item).toMatchObject({ itemId: 'look-001', modelNumber: 'LOOK-001' })
   })
+
+  test('downloads the platform asset bundle for an owned avatar', async () => {
+    const calls: Array<{ url: string; authorization: string }> = []
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        const url = String(input)
+        calls.push({
+          url,
+          authorization: new Headers(init?.headers).get('authorization') ?? '',
+        })
+
+        if (url.includes('/user-inventories/inventory-001')) {
+          return Response.json({
+            name: 'projects/popopo-prod/databases/(default)/documents/user-privates/user-123/user-inventories/inventory-001',
+            fields: { item_id: { stringValue: 'look-001' } },
+          })
+        }
+        if (url.includes('/indexes/') && url.endsWith('/look-001')) {
+          return Response.json({
+            objectID: 'look-001',
+            item_distribution_id: 'distribution-001',
+            status: 'public',
+            sale_period_state: { active: true },
+            item: {
+              kind: 'look',
+              asset_bundle: {
+                android: 'gs://popopo-prod.firebasestorage.app/items/look-001/asset-bundle/android/main',
+              },
+            },
+          })
+        }
+        if (url.includes('firebasestorage.googleapis.com')) {
+          return new Response(new Uint8Array([1, 2, 3]), {
+            headers: { 'content-type': 'application/octet-stream', 'content-length': '3' },
+          })
+        }
+        throw new Error(`Unexpected URL: ${url}`)
+      },
+      session: { userId: 'user-123', firebaseIdToken: 'firebase-token' },
+      firebase: { apiKey: 'api-key', projectId: 'popopo-prod' },
+    })
+
+    const result = await client.skins.downloadOwnedAsset('inventory-001')
+
+    expect(result.downloadUrl).toBe(
+      'https://firebasestorage.googleapis.com/v0/b/popopo-prod.firebasestorage.app/o/items%2Flook-001%2Fasset-bundle%2Fandroid%2Fmain?alt=media',
+    )
+    expect(result.contentLength).toBe(3)
+    expect(new Uint8Array(await result.response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+    expect(calls.at(-1)?.authorization).toBe('Firebase firebase-token')
+  })
+
+  test('downloads a store asset directly by item id without an inventory lookup', async () => {
+    const calls: string[] = []
+    const client = new PopopoClient({
+      fetch: async (input) => {
+        const url = String(input)
+        calls.push(url)
+        if (url.includes('/indexes/') && url.endsWith('/look-unowned')) {
+          return Response.json({
+            objectID: 'look-unowned',
+            item_distribution_id: 'distribution-001',
+            item: {
+              kind: 'look',
+              asset_bundle: {
+                android: 'gs://popopo-prod.firebasestorage.app/items/look-unowned/asset-bundle/android/main',
+              },
+            },
+          })
+        }
+        return new Response(new Uint8Array([4, 5, 6]))
+      },
+      session: { firebaseIdToken: 'firebase-token' },
+    })
+
+    const result = await client.skins.downloadStoreAsset('look-unowned')
+
+    expect(result.storeItem.itemId).toBe('look-unowned')
+    expect(calls).toHaveLength(2)
+    expect(calls.some((url) => url.includes('user-inventories'))).toBe(false)
+  })
 })
 
 describe('LivesClient', () => {

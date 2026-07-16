@@ -77,9 +77,13 @@ import type {
   NameplateSpecialDisplayedMessage,
   NotificationItem,
   OwnedSkin,
+  OwnedSkinAssetDownloadOptions,
+  OwnedSkinAssetDownloadResult,
   OwnedSkinListOptions,
   OwnedSkinListResult,
   StoreSkin,
+  StoreSkinAssetDownloadOptions,
+  StoreSkinAssetDownloadResult,
   StoreSkinDistribution,
   StoreSkinGetOptions,
   StoreSkinListOptions,
@@ -2455,6 +2459,63 @@ export class SkinsClient {
     return toOwnedSkin(parseFirestoreDocument(payload))
   }
 
+  async downloadOwnedAsset(
+    inventoryId: string,
+    input: OwnedSkinAssetDownloadOptions = {},
+  ): Promise<OwnedSkinAssetDownloadResult> {
+    const inventory = await this.getOwned(
+      inventoryId,
+      input.userId ?? requireUserId(this.runtime.http),
+    )
+    if (!inventory.itemId) {
+      throw new PopopoConfigurationError(
+        `Owned inventory ${inventoryId} does not contain an item id.`,
+      )
+    }
+
+    const downloaded = await this.downloadStoreAsset(inventory.itemId, input)
+
+    return {
+      inventory,
+      ...downloaded,
+    }
+  }
+
+  async downloadStoreAsset(
+    itemId: string,
+    input: StoreSkinAssetDownloadOptions = {},
+  ): Promise<StoreSkinAssetDownloadResult> {
+    const storeItem = await this.getStore(itemId)
+    const platform = input.platform ?? 'android'
+    const storageUri = storeItem.assetBundle?.[platform]
+    if (!storageUri) {
+      throw new PopopoConfigurationError(
+        `Store item ${itemId} does not provide an asset bundle for ${platform}.`,
+      )
+    }
+
+    const downloadUrl = buildFirebaseStorageDownloadUrl(storageUri)
+    const response = await this.runtime.http.request<Response>({
+      method: 'GET',
+      url: downloadUrl,
+      auth: 'firebase',
+      parseAs: 'response',
+      signal: input.signal,
+    })
+    const contentLengthHeader = response.headers.get('content-length')
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : undefined
+
+    return {
+      storeItem,
+      platform,
+      storageUri,
+      downloadUrl,
+      contentType: response.headers.get('content-type') ?? undefined,
+      contentLength: Number.isFinite(contentLength) ? contentLength : undefined,
+      response,
+    }
+  }
+
   async listStore(input: StoreSkinListOptions = {}): Promise<StoreSkinListResult> {
     const itemsResult = await fetchAllAlgoliaShopItemHits(this.runtime, {
       indexName: getStoreSkinAlgoliaIndexName(input.orderBy),
@@ -3969,6 +4030,7 @@ function toStoreSkinFromAlgoliaHit(hit: Record<string, unknown>): StoreSkin {
     isRecommended: optionalBoolean(hit.is_recommended),
     isReserved: optionalBoolean(hit.is_reserved),
     media: asObjectRecord(itemRecord?.media),
+    assetBundle: asStringRecord(itemRecord?.asset_bundle),
     tags: Array.isArray(itemRecord?.tags)
       ? itemRecord.tags
       : Array.isArray(hit.tags)
@@ -4337,6 +4399,22 @@ function buildAlgoliaObjectUrl(indexName: string, objectId: string): string {
   return `https://${DEFAULT_ALGOLIA_APPLICATION_ID}-dsn.algolia.net/1/indexes/${encodeURIComponent(indexName)}/${encodeURIComponent(objectId)}`
 }
 
+function buildFirebaseStorageDownloadUrl(storageUri: string): string {
+  let parsed: URL
+  try {
+    parsed = new URL(storageUri)
+  } catch {
+    throw new PopopoConfigurationError(`Invalid Firebase Storage URI: ${storageUri}`)
+  }
+
+  if (parsed.protocol !== 'gs:' || !parsed.hostname || !parsed.pathname.slice(1)) {
+    throw new PopopoConfigurationError(`Expected a gs:// Firebase Storage URI: ${storageUri}`)
+  }
+
+  const objectPath = decodeURIComponent(parsed.pathname.slice(1))
+  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(parsed.hostname)}/o/${encodeURIComponent(objectPath)}?alt=media`
+}
+
 function toEpochSeconds(value: unknown): number | undefined {
   const timestamp = toFiniteNumber(value)
 
@@ -4441,6 +4519,15 @@ function lastPathSegment(path: string): string {
 
 function asObjectRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
+}
+
+function asStringRecord(value: unknown): Record<string, string> | undefined {
+  const record = asObjectRecord(value)
+  if (!record) return undefined
+
+  return Object.fromEntries(
+    Object.entries(record).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  )
 }
 
 function toNotificationTemporalValue(value: unknown): string | number | null | undefined {
