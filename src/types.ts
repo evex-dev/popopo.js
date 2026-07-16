@@ -657,6 +657,10 @@ export interface StoreSkinDistribution {
   [key: string]: unknown
 }
 
+export type StoreSkinAssetPlatform = 'android' | 'ios' | 'linux' | 'windows' | 'mac'
+
+export type StoreSkinAssetBundle = Partial<Record<StoreSkinAssetPlatform, string>>
+
 export interface StoreSkin {
   id: string
   itemId: string
@@ -674,6 +678,7 @@ export interface StoreSkin {
   isNew?: boolean
   isRecommended?: boolean
   isReserved?: boolean
+  assetBundle?: StoreSkinAssetBundle
   media?: Record<string, unknown>
   tags?: unknown[]
   sales?: unknown[]

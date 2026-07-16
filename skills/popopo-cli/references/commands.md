@@ -92,6 +92,10 @@ popopo skins list [--user-id <id>] [--limit <n>] [--order-by <field dir>] [--pag
 popopo skins get --inventory-id <id> [--user-id <id>]
 popopo skins list-store [--search <text>] [--limit <n>] [--order-by <field dir>] [--include-inactive] [--include-non-public]
 popopo skins store-get --item-id <id> [--order-by <field dir>]
+popopo skins download-store [--output-dir <path>] [--platform <windows|mac|linux|android|ios|all>] [--concurrency <n>] [--overwrite] [--active-only] [--no-images] [--no-metadata]
+popopo skins index-store-dataset [--output-dir <path>] [--concurrency <n>] [--no-hashes]
+popopo skins decrypt-bundle --input <path> [--output <path>] [--key-file <path>] [--verify-only] [--overwrite]
+popopo skins decrypt-store [--input-dir <path>] [--output-dir <path>] [--key-file <path>] [--platform <windows|mac|linux|android|ios|all>] [--concurrency <n>] [--include-plain] [--verify-only] [--overwrite]
 popopo skins change --inventory-id <id>
 popopo invites list [--query key=value]
 popopo invites get --code <invite-code>
@@ -129,6 +133,14 @@ popopo tso build-file-url --file-id <id> [--modifier-enabled]
 --selection-id <value>
 --sequence-id <value>
 --output <path|->
+--input <path>
+--input-dir <path>
+--output-dir <path>
+--key-file <path>
+--platform <windows|mac|linux|android|ios|all>
+--concurrency <n>
+--include-plain
+--verify-only
 --audio-file <path>
 --limit <n>
 --max-bytes <n>

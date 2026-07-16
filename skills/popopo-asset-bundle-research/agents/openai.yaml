@@ -1,0 +1,4 @@
+interface:
+  display_name: "Popopo AssetBundle Research"
+  short_description: "Inspect Popopo AssetBundle compatibility."
+  default_prompt: "Use $popopo-asset-bundle-research to inspect a locally obtained Popopo build and validate AssetBundle compatibility."
