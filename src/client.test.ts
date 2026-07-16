@@ -754,7 +754,13 @@ describe('SkinsClient', () => {
       status: 'public',
       is_searchable: true,
       sale_period_state: { active: true },
-      item: { kind: 'look', default_price: 1200 },
+      item: {
+        kind: 'look',
+        default_price: 1200,
+        asset_bundle: {
+          windows: 'gs://popopo-prod.firebasestorage.app/items/look-001/asset-bundle/windows/main',
+        },
+      },
     }
     const client = new PopopoClient({
       fetch: async (input, init) => {
@@ -777,7 +783,51 @@ describe('SkinsClient', () => {
       body: '',
     })
     expect(listed.skins[0]).toMatchObject({ itemId: 'look-001', salePrice: 900 })
-    expect(item).toMatchObject({ itemId: 'look-001', modelNumber: 'LOOK-001' })
+    expect(item).toMatchObject({
+      itemId: 'look-001',
+      modelNumber: 'LOOK-001',
+      assetBundle: {
+        windows: 'gs://popopo-prod.firebasestorage.app/items/look-001/asset-bundle/windows/main',
+      },
+    })
+  })
+
+  test('downloads a Firebase Storage asset bundle with Firebase auth', async () => {
+    let seenUrl = ''
+    let seenAuthorization = ''
+    const client = new PopopoClient({
+      fetch: async (input, init) => {
+        seenUrl = String(input)
+        seenAuthorization = new Headers(init?.headers).get('authorization') ?? ''
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 })
+      },
+      session: { firebaseIdToken: 'firebase-token' },
+    })
+
+    const response = await client.skins.fetchAssetBundle(
+      'gs://popopo-prod.firebasestorage.app/items/look-001/asset-bundle/windows/main',
+    )
+
+    expect(seenUrl).toBe(
+      'https://firebasestorage.googleapis.com/v0/b/popopo-prod.firebasestorage.app/o/items%2Flook-001%2Fasset-bundle%2Fwindows%2Fmain?alt=media',
+    )
+    expect(seenAuthorization).toBe('Firebase firebase-token')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+  })
+
+  test('does not send Firebase auth to an external media host', async () => {
+    let seenAuthorization: string | null = 'not-called'
+    const client = new PopopoClient({
+      fetch: async (_input, init) => {
+        seenAuthorization = new Headers(init?.headers).get('authorization')
+        return new Response(new Uint8Array([4, 5, 6]), { status: 200 })
+      },
+      session: { firebaseIdToken: 'firebase-token' },
+    })
+
+    await client.skins.fetchStorageObject('https://ik.imagekit.io/popopo/items/look-001/main')
+
+    expect(seenAuthorization).toBeNull()
   })
 
   test('downloads the platform asset bundle for an owned avatar', async () => {

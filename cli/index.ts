@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
-import { mkdir, open, readFile, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { copyFile, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { createReadStream, existsSync } from 'node:fs'
+import { createCipheriv, createHash } from 'node:crypto'
+import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import pLimit from 'p-limit'
 import { publishLiveAudio } from '../src/live-audio-publisher.ts'
 import {
   DEFAULT_FIREBASE_CONFIG,
@@ -29,6 +31,9 @@ import {
   type SpaceCreateRequest,
   type SpaceMessageCreateRequest,
   type SpaceMessageListOptions,
+  type StoreSkin,
+  type StoreSkinAssetPlatform,
+  type StoreSkinListOptions,
 } from '../src'
 
 type GlobalOptions = {
@@ -63,6 +68,13 @@ async function main(): Promise<void> {
     return
   }
 
+  const localResult = await runLocalCommand(parsed.command, parsed.options)
+
+  if (localResult !== undefined) {
+    printResult(localResult, hasFlag(parsed.options, 'json'))
+    return
+  }
+
   const globalOptions = parseGlobalOptions(parsed.options)
   const session = await loadSession(globalOptions.sessionFile)
   const client = createClient(globalOptions, session)
@@ -74,6 +86,27 @@ async function main(): Promise<void> {
 
   await persistSession(globalOptions.sessionFile, client.getSession())
   printResult(result, globalOptions.json)
+}
+
+async function runLocalCommand(
+  command: string[],
+  options: Map<string, string[]>,
+): Promise<Record<string, unknown> | undefined> {
+  if (command[0] !== 'skins' && command[0] !== 'skin') return undefined
+
+  switch (command[1]) {
+    case 'index-store-dataset':
+    case 'store-index-dataset':
+      return buildStoreDatasetIndex(options)
+    case 'decrypt-bundle':
+    case 'bundle-decrypt':
+      return decryptSingleAssetBundle(options)
+    case 'decrypt-store':
+    case 'store-decrypt':
+      return decryptStoreAssetBundles(options)
+    default:
+      return undefined
+  }
 }
 
 async function dispatchCommand(
@@ -608,11 +641,1027 @@ async function runSkinsSubcommand(
         contentLength: downloaded.contentLength,
       }
     }
+    case 'download-store':
+    case 'store-download':
+      return downloadStoreSkins(client, options)
+    case 'index-store-dataset':
+    case 'store-dataset-index':
+      return buildStoreDatasetIndex(options)
+    case 'decrypt-bundle':
+    case 'bundle-decrypt':
+      return decryptSingleAssetBundle(options)
+    case 'decrypt-store':
+    case 'store-decrypt':
+      return decryptStoreAssetBundles(options)
     case 'change':
       return client.skins.change(buildSkinChangeRequest(options))
     default:
       throw new Error('Unknown skins subcommand.')
   }
+}
+
+type StoreSkinDownloadEntry = {
+  itemId: string
+  name?: string
+  platform: StoreSkinAssetPlatform
+  location: string
+  output: string
+  status: 'downloaded' | 'skipped' | 'failed'
+  bytes?: number
+  error?: string
+}
+
+type StoreSkinImageDownloadEntry = {
+  itemId: string
+  name?: string
+  key: string
+  location: string
+  output?: string
+  status: 'downloaded' | 'skipped' | 'failed'
+  bytes?: number
+  contentType?: string
+  error?: string
+}
+
+type StoreSkinImageSource = {
+  key: string
+  pathSegments: string[]
+  location: string
+}
+
+const storeSkinAssetPlatforms: StoreSkinAssetPlatform[] = [
+  'windows',
+  'mac',
+  'linux',
+  'android',
+  'ios',
+]
+
+async function downloadStoreSkins(
+  client: PopopoClient,
+  options: Map<string, string[]>,
+): Promise<Record<string, unknown>> {
+  const outputDir = resolve(getSingleOption(options, 'output-dir') ?? 'extracted/store')
+  const itemsDir = resolve(outputDir, 'items')
+  const platforms = parseStoreSkinAssetPlatforms(options)
+  const concurrency = parseStoreDownloadConcurrency(options)
+  const overwrite = hasFlag(options, 'overwrite')
+  const quiet = hasFlag(options, 'json')
+  const storeListOptions: StoreSkinListOptions = {
+    ...buildStoreSkinListOptions(options),
+    includeInactive: !hasFlag(options, 'active-only'),
+  }
+  const skins = await listAllStoreSkinsForDownload(client, storeListOptions)
+  const modelDownloads: Array<{
+    itemId: string
+    name?: string
+    platform: StoreSkinAssetPlatform
+    location: string
+  }> = []
+  const missingAssets: Array<{
+    itemId: string
+    name?: string
+    platform: StoreSkinAssetPlatform
+  }> = []
+
+  for (const skin of skins) {
+    for (const platform of platforms) {
+      const location = skin.assetBundle?.[platform]
+
+      if (!location) {
+        missingAssets.push({ itemId: skin.itemId, name: skin.name, platform })
+        continue
+      }
+
+      modelDownloads.push({
+        itemId: skin.itemId,
+        name: skin.name,
+        platform,
+        location,
+      })
+    }
+  }
+
+  await mkdir(outputDir, { recursive: true })
+  const limit = pLimit(concurrency)
+  const metadataEnabled = !hasFlag(options, 'no-metadata')
+  const imagesEnabled = !hasFlag(options, 'no-images')
+  const metadataResults = metadataEnabled
+    ? await Promise.all(
+        skins.map((skin) =>
+          limit(async () => {
+            const metadataPath = resolve(
+              itemsDir,
+              sanitizePathSegment(skin.itemId),
+              'metadata.json',
+            )
+            await mkdir(dirname(metadataPath), { recursive: true })
+            await writeFile(metadataPath, `${JSON.stringify(skin, null, 2)}\n`, 'utf8')
+            return metadataPath
+          }),
+        ),
+      )
+    : []
+  let completedModels = 0
+  const modelEntries = await Promise.all(
+    modelDownloads.map((download) =>
+      limit(async (): Promise<StoreSkinDownloadEntry> => {
+        const destination = resolve(
+          itemsDir,
+          sanitizePathSegment(download.itemId),
+          'asset-bundle',
+          download.platform,
+          'main',
+        )
+        const baseEntry = {
+          ...download,
+          output: destination,
+        }
+
+        try {
+          if (!overwrite && (await fileHasContent(destination))) {
+            return { ...baseEntry, status: 'skipped' }
+          }
+
+          const response = await client.skins.fetchAssetBundle(download.location)
+
+          if (!response.body) {
+            throw new Error('The asset bundle response has no body.')
+          }
+
+          const temporaryDestination = `${destination}.part`
+          const bytes = await writeReadableStreamToDestination(response.body, temporaryDestination)
+
+          if (bytes === 0) {
+            await unlink(temporaryDestination).catch(() => undefined)
+            throw new Error('The downloaded asset bundle is empty.')
+          }
+
+          if (existsSync(destination)) {
+            await unlink(destination)
+          }
+
+          await rename(temporaryDestination, destination)
+          return { ...baseEntry, status: 'downloaded', bytes }
+        } catch (error) {
+          await unlink(`${destination}.part`).catch(() => undefined)
+          return {
+            ...baseEntry,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          }
+        } finally {
+          completedModels += 1
+
+          if (
+            !quiet &&
+            (completedModels === modelDownloads.length || completedModels % 25 === 0)
+          ) {
+            console.error(
+              `[models ${completedModels}/${modelDownloads.length}] ${download.itemId} ${download.platform}`,
+            )
+          }
+        }
+      }),
+    ),
+  )
+  const imageDownloads = imagesEnabled
+    ? skins.flatMap((skin) =>
+        collectStoreSkinImages(skin).map((image) => ({
+          itemId: skin.itemId,
+          name: skin.name,
+          ...image,
+        })),
+      )
+    : []
+  let completedImages = 0
+  const imageEntries = await Promise.all(
+    imageDownloads.map((download) =>
+      limit(async (): Promise<StoreSkinImageDownloadEntry> => {
+        const destinationBase = resolve(
+          itemsDir,
+          sanitizePathSegment(download.itemId),
+          'images',
+          ...download.pathSegments.map(sanitizePathSegment),
+        )
+        const baseEntry = {
+          itemId: download.itemId,
+          name: download.name,
+          key: download.key,
+          location: download.location,
+        }
+
+        try {
+          const existing = !overwrite
+            ? await findExistingImageDestination(destinationBase)
+            : undefined
+
+          if (existing) {
+            return { ...baseEntry, output: existing, status: 'skipped' }
+          }
+
+          const response = await client.skins.fetchStorageObject(download.location)
+
+          if (!response.body) {
+            throw new Error('The image response has no body.')
+          }
+
+          const contentType = response.headers.get('content-type')?.split(';')[0]?.trim()
+          const destination = `${destinationBase}${getImageExtension(contentType, download.location)}`
+          const temporaryDestination = `${destination}.part`
+          const bytes = await writeReadableStreamToDestination(response.body, temporaryDestination)
+
+          if (bytes === 0) {
+            await unlink(temporaryDestination).catch(() => undefined)
+            throw new Error('The downloaded image is empty.')
+          }
+
+          if (existsSync(destination)) {
+            await unlink(destination)
+          }
+
+          await rename(temporaryDestination, destination)
+          return {
+            ...baseEntry,
+            output: destination,
+            status: 'downloaded',
+            bytes,
+            contentType,
+          }
+        } catch (error) {
+          await removeImagePartFiles(destinationBase)
+          return {
+            ...baseEntry,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+          }
+        } finally {
+          completedImages += 1
+
+          if (
+            !quiet &&
+            (completedImages === imageDownloads.length || completedImages % 100 === 0)
+          ) {
+            console.error(
+              `[images ${completedImages}/${imageDownloads.length}] ${download.itemId} ${download.key}`,
+            )
+          }
+        }
+      }),
+    ),
+  )
+  const manifestPath = resolve(outputDir, 'manifest.json')
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    outputDir,
+    itemsDir,
+    platforms,
+    storeSkinCount: skins.length,
+    metadataCount: metadataResults.length,
+    modelAssetCount: modelDownloads.length,
+    modelDownloadedCount: modelEntries.filter((entry) => entry.status === 'downloaded').length,
+    modelSkippedCount: modelEntries.filter((entry) => entry.status === 'skipped').length,
+    modelFailedCount: modelEntries.filter((entry) => entry.status === 'failed').length,
+    imageAssetCount: imageDownloads.length,
+    imageDownloadedCount: imageEntries.filter((entry) => entry.status === 'downloaded').length,
+    imageSkippedCount: imageEntries.filter((entry) => entry.status === 'skipped').length,
+    imageFailedCount: imageEntries.filter((entry) => entry.status === 'failed').length,
+    missingAssetCount: missingAssets.length,
+    missingAssets,
+    modelEntries,
+    imageEntries,
+  }
+
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+
+  return {
+    outputDir,
+    itemsDir,
+    platforms,
+    storeSkinCount: manifest.storeSkinCount,
+    metadataCount: manifest.metadataCount,
+    modelAssetCount: manifest.modelAssetCount,
+    modelDownloadedCount: manifest.modelDownloadedCount,
+    modelSkippedCount: manifest.modelSkippedCount,
+    modelFailedCount: manifest.modelFailedCount,
+    imageAssetCount: manifest.imageAssetCount,
+    imageDownloadedCount: manifest.imageDownloadedCount,
+    imageSkippedCount: manifest.imageSkippedCount,
+    imageFailedCount: manifest.imageFailedCount,
+    missingAssetCount: manifest.missingAssetCount,
+    manifestPath,
+  }
+}
+
+function collectStoreSkinImages(skin: StoreSkin): StoreSkinImageSource[] {
+  const images: StoreSkinImageSource[] = []
+  const seenLocations = new Set<string>()
+
+  const visit = (value: unknown, pathSegments: string[]): void => {
+    if (Array.isArray(value)) {
+      value.forEach((entry, index) => visit(entry, [...pathSegments, String(index)]))
+      return
+    }
+
+    if (!value || typeof value !== 'object') {
+      return
+    }
+
+    const record = value as Record<string, unknown>
+
+    if (record.kind === 'image') {
+      const location =
+        typeof record.location === 'string'
+          ? record.location
+          : typeof record.value === 'string'
+            ? record.value
+            : undefined
+
+      if (location && !seenLocations.has(location)) {
+        seenLocations.add(location)
+        images.push({ key: pathSegments.join('/'), pathSegments, location })
+      }
+
+      return
+    }
+
+    for (const [key, entry] of Object.entries(record)) {
+      if (key === 'variants') {
+        continue
+      }
+
+      visit(entry, [...pathSegments, key])
+    }
+  }
+
+  visit(skin.media, ['media'])
+  visit(skin.media_account, ['media-account'])
+  return images
+}
+
+const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.image']
+
+async function findExistingImageDestination(destinationBase: string): Promise<string | undefined> {
+  for (const extension of imageExtensions) {
+    const candidate = `${destinationBase}${extension}`
+
+    if (await fileHasContent(candidate)) {
+      return candidate
+    }
+  }
+
+  return undefined
+}
+
+function getImageExtension(contentType: string | undefined, location: string): string {
+  switch (contentType?.toLowerCase()) {
+    case 'image/png':
+      return '.png'
+    case 'image/jpeg':
+      return '.jpg'
+    case 'image/webp':
+      return '.webp'
+    case 'image/gif':
+      return '.gif'
+    case 'image/avif':
+      return '.avif'
+  }
+
+  const pathname = /^https?:\/\//i.test(location) ? new URL(location).pathname : location
+  const match = pathname.match(/\.(png|jpe?g|webp|gif|avif)$/i)
+  return match ? `.${match[1]!.toLowerCase().replace('jpeg', 'jpg')}` : '.image'
+}
+
+async function removeImagePartFiles(destinationBase: string): Promise<void> {
+  await Promise.all(
+    imageExtensions.map((extension) =>
+      unlink(`${destinationBase}${extension}.part`).catch(() => undefined),
+    ),
+  )
+}
+
+async function listAllStoreSkinsForDownload(
+  client: PopopoClient,
+  input: StoreSkinListOptions,
+): Promise<StoreSkin[]> {
+  if (input.limit !== undefined || input.query || input.orderBy) {
+    return (await client.skins.listStore(input)).skins
+  }
+
+  const orderBys: Array<string | undefined> = [
+    undefined,
+    'sale_price asc',
+    'sale_price desc',
+    'start_at asc',
+    'start_at desc',
+    'popular_score desc',
+    'sale_discount_rate desc',
+  ]
+  const skins = new Map<string, StoreSkin>()
+
+  for (const orderBy of orderBys) {
+    const result = await client.skins.listStore({ ...input, orderBy })
+
+    for (const skin of result.skins) {
+      skins.set(skin.itemId, skin)
+    }
+  }
+
+  return [...skins.values()]
+}
+
+async function buildStoreDatasetIndex(
+  options: Map<string, string[]>,
+): Promise<Record<string, unknown>> {
+  const outputDir = resolve(getSingleOption(options, 'output-dir') ?? 'extracted/store')
+  const nestedItemsDir = resolve(outputDir, 'items')
+  const itemsDir = existsSync(nestedItemsDir) ? nestedItemsDir : outputDir
+  const directoryEntries = await readdir(itemsDir, { withFileTypes: true })
+  const itemDirectories = directoryEntries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+  const datasetRows: Record<string, unknown>[] = []
+  const platforms: StoreSkinAssetPlatform[] = ['windows', 'mac', 'linux', 'android', 'ios']
+
+  for (const itemId of itemDirectories) {
+    const itemDirectory = resolve(itemsDir, itemId)
+    const metadataPath = resolve(itemDirectory, 'metadata.json')
+
+    if (!existsSync(metadataPath)) {
+      continue
+    }
+
+    const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as StoreSkin
+    const models: Partial<Record<StoreSkinAssetPlatform, string>> = {}
+
+    for (const platform of platforms) {
+      const modelPath = resolve(itemDirectory, 'asset-bundle', platform, 'main')
+
+      if (await fileHasContent(modelPath)) {
+        models[platform] = toPortableRelativePath(outputDir, modelPath)
+      }
+    }
+
+    const imagesDirectory = resolve(itemDirectory, 'images')
+    const images = existsSync(imagesDirectory)
+      ? (await listFilesRecursively(imagesDirectory))
+          .map((path) => toPortableRelativePath(outputDir, path))
+          .sort()
+      : []
+
+    datasetRows.push({
+      itemId: metadata.itemId ?? itemId,
+      name: metadata.name,
+      description: metadata.description,
+      kind: metadata.kind,
+      status: metadata.status,
+      modelNumber: metadata.modelNumber,
+      price: metadata.price,
+      salePrice: metadata.salePrice,
+      saleDiscountRate: metadata.saleDiscountRate,
+      brandIds: toStringList(metadata.brand_ids),
+      brandNames: toStringList(metadata.brand_names),
+      tags: toStringList(metadata.tags),
+      metadata: toPortableRelativePath(outputDir, metadataPath),
+      models,
+      images,
+    })
+  }
+
+  const datasetPath = resolve(outputDir, 'dataset.jsonl')
+  await writeFile(
+    datasetPath,
+    `${datasetRows.map((row) => JSON.stringify(row)).join('\n')}\n`,
+    'utf8',
+  )
+
+  let checksumPath: string | undefined
+  let checksumCount = 0
+
+  if (!hasFlag(options, 'no-hashes')) {
+    const files = (await listFilesRecursively(outputDir))
+      .filter((path) => {
+        const relativePath = toPortableRelativePath(outputDir, path)
+        return (
+          ![
+            'dataset.jsonl',
+            'files.sha256',
+            'manifest.json',
+            'platform-differences.jsonl',
+          ].includes(relativePath) &&
+          !relativePath.startsWith('.git/') &&
+          !relativePath.startsWith('node_modules/')
+        )
+      })
+      .sort()
+    const concurrency = Math.min(parseStoreDownloadConcurrency(options), 8)
+    const limit = pLimit(concurrency)
+    let completed = 0
+    const checksums = await Promise.all(
+      files.map((path) =>
+        limit(async () => {
+          const hash = await hashFileSha256(path)
+          completed += 1
+
+          if (!hasFlag(options, 'json') && (completed === files.length || completed % 500 === 0)) {
+            console.error(`[hashes ${completed}/${files.length}]`)
+          }
+
+          return `${hash} *${toPortableRelativePath(outputDir, path)}`
+        }),
+      ),
+    )
+    checksumPath = resolve(outputDir, 'files.sha256')
+    checksumCount = checksums.length
+    await writeFile(checksumPath, `${checksums.join('\n')}\n`, 'utf8')
+  }
+
+  return {
+    outputDir,
+    itemCount: datasetRows.length,
+    datasetPath,
+    checksumCount,
+    checksumPath,
+  }
+}
+
+const assetBundleMagic = Buffer.from('UnityFS\0', 'ascii')
+const assetBundleAesBlockSize = 16
+const assetBundleHeaderReadSize = 4096
+const assetBundleTransformChunkSize = 1024 * 1024
+const assetBundleKeyEnvironmentVariable = 'POPOPO_ASSET_BUNDLE_KEY'
+
+type AssetBundleHeader = {
+  formatVersion: number
+  minimumPlayerVersion: string
+  engineVersion: string
+  declaredSize: bigint
+}
+
+type AssetBundleInspection = {
+  encrypted: boolean
+  bytes: number
+  header: AssetBundleHeader
+}
+
+type AssetBundleDecryptEntry = {
+  input: string
+  output?: string
+  status:
+    | 'decrypted'
+    | 'copied-plain'
+    | 'verified-encrypted'
+    | 'verified-plain'
+    | 'skipped-existing'
+    | 'skipped-plain'
+    | 'failed'
+  bytes?: number
+  error?: string
+}
+
+async function decryptSingleAssetBundle(
+  options: Map<string, string[]>,
+): Promise<Record<string, unknown>> {
+  const input = resolve(requireOption(options, 'input'))
+  const output = resolve(getSingleOption(options, 'output') ?? `${input}.unityfs`)
+  const verifyOnly = hasFlag(options, 'verify-only')
+  const key = await resolveAssetBundleDecryptionKey(options)
+
+  if (!verifyOnly && input === output) {
+    throw new Error('Refusing to overwrite the input bundle. Choose a different --output path.')
+  }
+
+  const entry = await processAssetBundle(input, output, key, {
+    includePlain: true,
+    overwrite: hasFlag(options, 'overwrite'),
+    verifyOnly,
+  })
+
+  if (entry.status === 'failed') {
+    throw new Error(entry.error ?? `Failed to decrypt ${input}`)
+  }
+
+  return entry
+}
+
+async function decryptStoreAssetBundles(
+  options: Map<string, string[]>,
+): Promise<Record<string, unknown>> {
+  const inputDir = resolve(getSingleOption(options, 'input-dir') ?? 'extracted/store')
+  const outputDir = resolve(getSingleOption(options, 'output-dir') ?? `${inputDir}-decrypted`)
+  const verifyOnly = hasFlag(options, 'verify-only')
+  const includePlain = hasFlag(options, 'include-plain')
+  const overwrite = hasFlag(options, 'overwrite')
+  const concurrency = parseStoreDownloadConcurrency(options)
+  const key = await resolveAssetBundleDecryptionKey(options)
+  const selectedPlatforms = options.has('platform')
+    ? new Set(parseStoreSkinAssetPlatforms(options))
+    : new Set(storeSkinAssetPlatforms)
+  const outputRelativeToInput = relative(inputDir, outputDir)
+
+  if (
+    !verifyOnly &&
+    (outputRelativeToInput === '' ||
+      (!outputRelativeToInput.startsWith('..') && !isAbsolute(outputRelativeToInput)))
+  ) {
+    throw new Error('--output-dir must be outside --input-dir to avoid recursive dataset copies.')
+  }
+
+  const inputs = (await listFilesRecursively(inputDir)).filter((path) => {
+    const segments = relative(inputDir, path).split(/[\\/]/)
+    const assetBundleIndex = segments.lastIndexOf('asset-bundle')
+    const platform = assetBundleIndex >= 0 ? segments[assetBundleIndex + 1] : undefined
+
+    return (
+      assetBundleIndex >= 0 &&
+      segments.at(-1) === 'main' &&
+      platform !== undefined &&
+      selectedPlatforms.has(platform as StoreSkinAssetPlatform)
+    )
+  })
+  const limit = pLimit(concurrency)
+  let completed = 0
+  const quiet = hasFlag(options, 'json')
+  const entries = await Promise.all(
+    inputs.map((input) =>
+      limit(async () => {
+        const output = resolve(outputDir, relative(inputDir, input))
+        const entry = await processAssetBundle(input, output, key, {
+          includePlain,
+          overwrite,
+          verifyOnly,
+        })
+        completed += 1
+
+        if (!quiet && (completed === inputs.length || completed % 50 === 0)) {
+          console.error(`[decrypt ${completed}/${inputs.length}]`)
+        }
+
+        return entry
+      }),
+    ),
+  )
+  const statusCounts = entries.reduce<Record<string, number>>((counts, entry) => {
+    counts[entry.status] = (counts[entry.status] ?? 0) + 1
+    return counts
+  }, {})
+  const failures = entries.filter((entry) => entry.status === 'failed')
+
+  return {
+    inputDir,
+    outputDir: verifyOnly ? undefined : outputDir,
+    scanned: entries.length,
+    verifyOnly,
+    includePlain,
+    statusCounts,
+    bytesWritten: entries.reduce(
+      (total, entry) =>
+        entry.status === 'decrypted' || entry.status === 'copied-plain'
+          ? total + (entry.bytes ?? 0)
+          : total,
+      0,
+    ),
+    failures,
+  }
+}
+
+async function processAssetBundle(
+  input: string,
+  output: string,
+  key: Buffer,
+  options: {
+    includePlain: boolean
+    overwrite: boolean
+    verifyOnly: boolean
+  },
+): Promise<AssetBundleDecryptEntry> {
+  try {
+    const inspection = await inspectAssetBundle(input, key)
+
+    if (options.verifyOnly) {
+      return {
+        input,
+        status: inspection.encrypted ? 'verified-encrypted' : 'verified-plain',
+        bytes: inspection.bytes,
+      }
+    }
+
+    if (!inspection.encrypted && !options.includePlain) {
+      return { input, status: 'skipped-plain', bytes: inspection.bytes }
+    }
+
+    if (!options.overwrite && existsSync(output)) {
+      return { input, output, status: 'skipped-existing' }
+    }
+
+    await mkdir(dirname(output), { recursive: true })
+    const temporaryOutput = `${output}.part`
+    await unlink(temporaryOutput).catch(() => undefined)
+
+    try {
+      if (inspection.encrypted) {
+        await decryptAssetBundleFile(input, temporaryOutput, key)
+      } else {
+        await copyFile(input, temporaryOutput)
+      }
+
+      const outputInspection = await inspectAssetBundle(temporaryOutput, key)
+
+      if (outputInspection.encrypted) {
+        throw new Error('Decoded output still has an encrypted header.')
+      }
+
+      if (existsSync(output)) {
+        await unlink(output)
+      }
+
+      await rename(temporaryOutput, output)
+      return {
+        input,
+        output,
+        status: inspection.encrypted ? 'decrypted' : 'copied-plain',
+        bytes: outputInspection.bytes,
+      }
+    } catch (error) {
+      await unlink(temporaryOutput).catch(() => undefined)
+      throw error
+    }
+  } catch (error) {
+    return {
+      input,
+      output,
+      status: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+async function resolveAssetBundleDecryptionKey(
+  options: Map<string, string[]>,
+): Promise<Buffer> {
+  const keyFile = getSingleOption(options, 'key-file')
+  const encoded = keyFile
+    ? await readFile(resolve(keyFile))
+    : process.env[assetBundleKeyEnvironmentVariable]
+      ? Buffer.from(process.env[assetBundleKeyEnvironmentVariable]!, 'utf8')
+      : undefined
+
+  if (!encoded) {
+    throw new Error(
+      `Missing AssetBundle key. Use --key-file <path> or set ${assetBundleKeyEnvironmentVariable}.`,
+    )
+  }
+
+  const key = decodeAssetBundleKey(encoded)
+
+  if (key.length !== 32) {
+    throw new Error(`AssetBundle key must decode to exactly 32 bytes; received ${key.length}.`)
+  }
+
+  return key
+}
+
+function decodeAssetBundleKey(encoded: Buffer): Buffer {
+  const text = encoded.toString('utf8').trim()
+
+  if (text.startsWith('hex:')) {
+    return Buffer.from(text.slice(4).trim(), 'hex')
+  }
+
+  if (text.startsWith('base64:')) {
+    return Buffer.from(text.slice(7).trim(), 'base64')
+  }
+
+  if (/^[0-9a-f]{64}$/i.test(text)) {
+    return Buffer.from(text, 'hex')
+  }
+
+  if (encoded.length === 32) {
+    return encoded
+  }
+
+  return Buffer.from(text, 'utf8')
+}
+
+async function inspectAssetBundle(input: string, key: Buffer): Promise<AssetBundleInspection> {
+  const file = await open(input, 'r')
+
+  try {
+    const info = await file.stat()
+    const prefix = Buffer.alloc(Math.min(assetBundleHeaderReadSize, info.size))
+    const { bytesRead } = await file.read(prefix, 0, prefix.length, 0)
+    const sourceHeader = prefix.subarray(0, bytesRead)
+    const encrypted = !sourceHeader.subarray(0, assetBundleMagic.length).equals(assetBundleMagic)
+    const decodedHeader = encrypted
+      ? transformAssetBundleBytes(sourceHeader, key, 0)
+      : sourceHeader
+    const header = parseAssetBundleHeader(decodedHeader)
+
+    if (header.declaredSize !== BigInt(info.size)) {
+      throw new Error(
+        `UnityFS size mismatch for ${input}: header=${header.declaredSize}, actual=${info.size}`,
+      )
+    }
+
+    return { encrypted, bytes: info.size, header }
+  } finally {
+    await file.close()
+  }
+}
+
+function parseAssetBundleHeader(data: Buffer): AssetBundleHeader {
+  const signature = readNullTerminatedString(data, 0)
+
+  if (signature.value !== 'UnityFS') {
+    throw new Error(`Unexpected AssetBundle signature: ${JSON.stringify(signature.value)}`)
+  }
+
+  if (signature.next + 4 > data.length) {
+    throw new Error('Truncated UnityFS format version.')
+  }
+
+  const formatVersion = data.readUInt32BE(signature.next)
+  const minimumPlayerVersion = readNullTerminatedString(data, signature.next + 4)
+  const engineVersion = readNullTerminatedString(data, minimumPlayerVersion.next)
+
+  if (engineVersion.next + 8 > data.length) {
+    throw new Error('Truncated UnityFS declared size.')
+  }
+
+  return {
+    formatVersion,
+    minimumPlayerVersion: minimumPlayerVersion.value,
+    engineVersion: engineVersion.value,
+    declaredSize: data.readBigUInt64BE(engineVersion.next),
+  }
+}
+
+function readNullTerminatedString(
+  data: Buffer,
+  start: number,
+): { value: string; next: number } {
+  const end = data.indexOf(0, start)
+
+  if (end < 0) {
+    throw new Error(`Unterminated UnityFS header string at offset ${start}.`)
+  }
+
+  return { value: data.subarray(start, end).toString('utf8'), next: end + 1 }
+}
+
+function transformAssetBundleBytes(data: Buffer, key: Buffer, absoluteOffset: number): Buffer {
+  if (absoluteOffset % assetBundleAesBlockSize !== 0) {
+    throw new Error('AssetBundle transform offset must be aligned to 16 bytes.')
+  }
+
+  const paddedLength = Math.ceil(data.length / assetBundleAesBlockSize) * assetBundleAesBlockSize
+  const counters = Buffer.alloc(paddedLength)
+  let blockNumber = BigInt(absoluteOffset / assetBundleAesBlockSize) + 1n
+
+  for (let offset = 0; offset < paddedLength; offset += assetBundleAesBlockSize) {
+    counters.writeBigUInt64BE(blockNumber, offset)
+    blockNumber += 1n
+  }
+
+  const aes = createCipheriv('aes-256-ecb', key, null)
+  aes.setAutoPadding(false)
+  const keyStream = Buffer.concat([aes.update(counters), aes.final()])
+  const output = Buffer.allocUnsafe(data.length)
+
+  for (let index = 0; index < data.length; index += 1) {
+    output[index] = data[index]! ^ keyStream[index]!
+  }
+
+  return output
+}
+
+async function decryptAssetBundleFile(input: string, output: string, key: Buffer): Promise<void> {
+  const source = await open(input, 'r')
+  const destination = await open(output, 'w')
+  let position = 0
+
+  try {
+    while (true) {
+      const buffer = Buffer.allocUnsafe(assetBundleTransformChunkSize)
+      let bytesRead = 0
+
+      while (bytesRead < buffer.length) {
+        const result = await source.read(
+          buffer,
+          bytesRead,
+          buffer.length - bytesRead,
+          position + bytesRead,
+        )
+
+        if (result.bytesRead === 0) {
+          break
+        }
+
+        bytesRead += result.bytesRead
+      }
+
+      if (bytesRead === 0) {
+        break
+      }
+
+      const decoded = transformAssetBundleBytes(buffer.subarray(0, bytesRead), key, position)
+      await destination.write(decoded, 0, decoded.length, position)
+      position += bytesRead
+
+      if (bytesRead < buffer.length) {
+        break
+      }
+    }
+  } finally {
+    await Promise.all([
+      source.close().catch(() => undefined),
+      destination.close().catch(() => undefined),
+    ])
+  }
+}
+
+async function listFilesRecursively(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true })
+  const files: string[] = []
+
+  for (const entry of entries) {
+    const path = resolve(directory, entry.name)
+
+    if (entry.isDirectory()) {
+      files.push(...(await listFilesRecursively(path)))
+    } else if (entry.isFile() && !entry.name.endsWith('.part')) {
+      files.push(path)
+    }
+  }
+
+  return files
+}
+
+async function hashFileSha256(path: string): Promise<string> {
+  const hash = createHash('sha256')
+
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk as Buffer)
+  }
+
+  return hash.digest('hex')
+}
+
+function toPortableRelativePath(base: string, path: string): string {
+  return relative(base, path).replace(/\\/g, '/')
+}
+
+function toStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
+function parseStoreSkinAssetPlatforms(
+  options: Map<string, string[]>,
+): StoreSkinAssetPlatform[] {
+  const requested = (options.get('platform') ?? ['windows'])
+    .flatMap((value) => value.split(','))
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+
+  if (requested.includes('all')) {
+    return [...storeSkinAssetPlatforms]
+  }
+
+  const platforms = [...new Set(requested)]
+
+  for (const platform of platforms) {
+    if (!storeSkinAssetPlatforms.includes(platform as StoreSkinAssetPlatform)) {
+      throw new Error(
+        `Unsupported asset platform: ${platform}. Use windows, mac, linux, android, ios, or all.`,
+      )
+    }
+  }
+
+  return platforms as StoreSkinAssetPlatform[]
+}
+
+function parseStoreDownloadConcurrency(options: Map<string, string[]>): number {
+  const concurrency = parseOptionalNumberOption(options, 'concurrency') ?? 4
+
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) {
+    throw new Error('--concurrency must be an integer from 1 to 32.')
+  }
+
+  return concurrency
+}
+
+async function fileHasContent(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).size > 0
+  } catch {
+    return false
+  }
+}
+
+function sanitizePathSegment(value: string): string {
+  const sanitized = value.replace(/[^A-Za-z0-9._-]/g, '_')
+  return sanitized || 'unknown'
 }
 
 async function runLiveCommentWatch(
@@ -1865,6 +2914,10 @@ function printHelp(): void {
       '  popopo skins list-store [--search <text>] [--limit <n>] [--order-by <field dir>] [--include-inactive] [--include-non-public]',
       '  popopo skins store-get --item-id <id> [--order-by <field dir>]',
       '  popopo skins download (--itemid <id> | --inventory-id <id>) [--platform <android|ios|linux|windows|mac>] [--output <path>]',
+      '  popopo skins download-store [--output-dir <path>] [--platform <windows|mac|linux|android|ios|all>] [--concurrency <n>] [--overwrite] [--active-only] [--no-images] [--no-metadata]',
+      '  popopo skins index-store-dataset [--output-dir <path>] [--concurrency <n>] [--no-hashes]',
+      '  popopo skins decrypt-bundle --input <path> [--output <path>] [--key-file <path>] [--verify-only] [--overwrite]',
+      '  popopo skins decrypt-store [--input-dir <path>] [--output-dir <path>] [--key-file <path>] [--platform <windows|mac|linux|android|ios|all>] [--concurrency <n>] [--include-plain] [--verify-only] [--overwrite]',
       '  popopo skins change --inventory-id <id>',
       '  popopo invites list [--query key=value]',
       '  popopo invites get --code <invite-code>',
@@ -1937,9 +2990,22 @@ function printHelp(): void {
       '  --inventory-id <value>',
       '  --item-id <value>',
       '  --itemid <value>         Download a store asset directly by item ID',
-      '  --platform <value>       Asset bundle platform (default: android)',
       '  --output <path>          Download destination',
       '  --search <text>          Search store looks by keyword',
+      '  --input <path>           Input for `skins decrypt-bundle`',
+      '  --input-dir <path>       Store dataset to decrypt (default: extracted/store)',
+      '  --output-dir <path>      Dataset root or decryption destination (downloads use items/<item-id>)',
+      '  --key-file <path>        32-byte AssetBundle key (raw, UTF-8, hex, or base64)',
+      `  ${assetBundleKeyEnvironmentVariable}           Alternative AssetBundle key environment variable`,
+      '  --platform <value>       Asset bundle platform (download default: android; bulk download default: windows; decrypt default: all)',
+      '  --concurrency <n>        Concurrent operations from 1 to 32 (default: 4)',
+      '  --include-plain          Copy already-plain bundles into the decrypted output',
+      '  --verify-only            Verify bundle headers without writing output',
+      '  --overwrite              Replace existing asset bundle outputs',
+      '  --active-only            Download only currently active store looks',
+      '  --no-images              Skip store image downloads',
+      '  --no-metadata            Skip per-item metadata.json files',
+      '  --no-hashes              Skip files.sha256 generation for dataset indexing',
       '  --skin-id <value>        Alias of --inventory-id for `popopo skins change`',
       '  --include-inactive       Include skins that are not currently on sale',
       '  --include-non-public     Include non-public item docs in `popopo skins list-store`',
